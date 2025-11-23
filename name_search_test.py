@@ -1,6 +1,23 @@
+"""
+DEPRECATED: This script is deprecated and will be removed in a future version.
+
+Please use one of the following alternatives:
+- Modern CLI: oft-test-matching (requires: pip install -e .)
+- Wrapper script: name_search_test_new.py (compatible interface)
+
+See TECHNICAL_README.md for migration instructions.
+"""
+import warnings
 import re
 import os
 import sys
+
+warnings.warn(
+    "name_search_test.py is deprecated. Use 'oft-test-matching' CLI or name_search_test_new.py wrapper instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
+print("⚠️  WARNING: This script is deprecated. Use 'oft-test-matching' or name_search_test_new.py instead.", file=sys.stderr)
 
 import name_search
 import scraper

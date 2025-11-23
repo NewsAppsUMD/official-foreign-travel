@@ -1,7 +1,25 @@
+"""
+DEPRECATED: This script is deprecated and will be removed in a future version.
+
+Please use one of the following alternatives:
+- Modern CLI: oft-parse (requires: pip install -e .)
+- Wrapper script: scraper_new.py (compatible interface)
+- Python API: from official_foreign_travel.scrapers import ReportParser
+
+See TECHNICAL_README.md for migration instructions.
+"""
+import warnings
 import re
 import os
 import sys
 import csv
+
+warnings.warn(
+    "scraper.py is deprecated. Use 'oft-parse' CLI or scraper_new.py wrapper instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
+print("⚠️  WARNING: This script is deprecated. Use 'oft-parse' or scraper_new.py instead.", file=sys.stderr)
 
 def get_members():
     with open('members.csv','r') as csvfile:
