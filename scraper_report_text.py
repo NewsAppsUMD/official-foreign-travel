@@ -1,3 +1,23 @@
+"""
+DEPRECATED: This script is deprecated and will be removed in a future version.
+
+Please use one of the following alternatives:
+- Modern CLI: oft-download (requires: pip install -e .)
+- Wrapper script: scraper_report_text_new.py (compatible interface)
+- Python API: from official_foreign_travel.scrapers import ReportDownloader
+
+See TECHNICAL_README.md for migration instructions.
+"""
+import warnings
+import sys
+
+warnings.warn(
+    "scraper_report_text.py is deprecated. Use 'oft-download' CLI or scraper_report_text_new.py wrapper instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
+print("⚠️  WARNING: This script is deprecated. Use 'oft-download' or scraper_report_text_new.py instead.", file=sys.stderr)
+
 ## For getting full text of all reports
 
 import re

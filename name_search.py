@@ -1,4 +1,12 @@
 """
+DEPRECATED: This module is deprecated and will be removed in a future version.
+
+Please use one of the following alternatives:
+- Python API: from official_foreign_travel.matchers import NameMatcher
+- CLI: oft-test-matching (requires: pip install -e .)
+
+See TECHNICAL_README.md for migration instructions.
+
 Data source:
 https://raw.githubusercontent.com/unitedstates/congress-legislators/master/legislators-current.yaml
 https://raw.githubusercontent.com/unitedstates/congress-legislators/master/legislators-historical.yaml
@@ -8,6 +16,14 @@ TODO
 consecutive parts of names
 optimization in name_match to cut down search space when some fields are empty
 """
+import warnings
+import sys
+
+warnings.warn(
+    "name_search.py is deprecated. Use 'from official_foreign_travel.matchers import NameMatcher' instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 import yaml
 import re
@@ -17,7 +33,7 @@ import unicodedata
 
 def load_legislators(filename):
     with open(filename) as f:
-        return yaml.load(f.read())
+        return yaml.safe_load(f.read())
 
 def check_bioguide(members_list):
     """ 

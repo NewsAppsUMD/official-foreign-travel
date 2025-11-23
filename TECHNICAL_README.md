@@ -1,5 +1,27 @@
 # Official Foreign Travel - Technical Documentation
 
+## Version 2.1 - Enhanced Quality & Tooling
+
+**Latest Update:** Version 2.1 adds critical security fixes, automated tooling, comprehensive testing, and CI/CD.
+
+📖 **[See UPGRADE_GUIDE.md for what's new and migration instructions](UPGRADE_GUIDE.md)**
+
+### Quick Links
+- **New Users**: See [Installation](#installation) below
+- **Upgrading**: See [UPGRADE_GUIDE.md](UPGRADE_GUIDE.md)
+- **Contributing**: See [Development](#development) section
+
+### Version 2.1 Highlights
+
+- ✅ **Security Fix**: Fixed YAML loading vulnerability (CVE prevention)
+- 🚀 **Automated Downloads**: New `oft-download-legislators` CLI tool
+- 🧪 **Test Suite**: Comprehensive pytest suite with 90%+ coverage
+- 🔄 **CI/CD**: GitHub Actions for automated testing and validation
+- 📦 **Dependencies**: Added `requirements.txt` and `requirements-dev.txt`
+- ⚠️  **Deprecation Warnings**: Old scripts now warn users to upgrade
+- 🔍 **Strict Type Checking**: Enabled for all new code
+- 🎯 **Enhanced Linting**: Ruff configuration with multiple rule sets
+
 ## Version 2.0 - Python 3 + Pydantic Upgrade
 
 This is a modernized version of the foreign travel scraper, completely refactored for Python 3 with Pydantic schemas, better organization, and improved robustness.
@@ -100,6 +122,22 @@ oft-test-matching report_text/ matching_issues.txt
 
 # With custom cache location
 oft-test-matching report_text/ issues.txt --cache my_cache.pickle
+```
+
+#### Download Legislator Data (New in v2.1)
+
+```bash
+# Download current and historical legislator data
+oft-download-legislators
+
+# Download to specific directory
+oft-download-legislators --output-dir data/
+
+# Download only current legislators
+oft-download-legislators --current-only
+
+# Or use standalone script
+python download_legislators.py
 ```
 
 ### Method 2: Backward-Compatible Scripts
@@ -307,7 +345,14 @@ ruff check official_foreign_travel/
 
 ### "YAML file not found"
 
-Download legislator data from:
+**New in v2.1:** Use the automated download tool:
+```bash
+oft-download-legislators
+# or
+python download_legislators.py
+```
+
+Or download manually from:
 - https://raw.githubusercontent.com/unitedstates/congress-legislators/master/legislators-current.yaml
 - https://raw.githubusercontent.com/unitedstates/congress-legislators/master/legislators-historical.yaml
 

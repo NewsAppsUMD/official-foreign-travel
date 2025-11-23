@@ -55,6 +55,10 @@ output/
 *.csv
 *.txt
 
+# Exceptions: keep requirements files
+!requirements.txt
+!requirements-dev.txt
+
 # Environment
 .env
 
