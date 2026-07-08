@@ -21,6 +21,49 @@ _From Derek Willis of ProPublica:_
 
 >Caveats: in some cases, the destination is a continent, not a country. This usually happens for trips paid for by the Intelligence Committee. Lawmakers are typically identified by the prefix "Hon" before their names. There could be amended reports, meaning substantially duplicative information would occur. To the extent we can identify those cases, we want to retain the most recent report.
 
-The script to clean this data is an ongoing process.  [`scraper_report_text.py`](https://github.com/Data4Democracy/official-foreign-travel/blob/master/scraper_report_text.py) pulls down the text files from the server.  [`scraper.py`](https://github.com/Data4Democracy/official-foreign-travel/blob/master/scraper.py) cleans and outputs the data, which is stored on our [data.world page](https://data.world/data4democracy/propublica-foreign-travel) or can be read in using [this link](https://query.data.world/s/9a8mas5oqrayibt2i30wznwug). 
+## Processing pipeline (v3)
 
-To keep things consistent, please use links to our data.world page in your scripts whenever possible.
+`oft-download` pulls the raw text files from the House Clerk site into `report_text/`.
+`oft-parse` (backed by the `official_foreign_travel.parsing` package) turns them into
+structured data:
+
+1. **Segmentation**: each file is split into one table per
+   `REPORT OF EXPENDITURES FOR OFFICIAL FOREIGN TRAVEL` header, rather than relying on a
+   dashed delimiter that a meaningful fraction of files never contain.
+2. **Header parsing**: the sponsor (committee/delegation/commission/individual/etc.) and
+   reporting period are extracted from the title line.
+3. **Layout detection**: column boundaries (name, arrival, departure, country, and the
+   eight cost subcolumns) are detected per table from its own column-header block and
+   cross-checked against the real data rows, instead of trusting one fixed set of offsets
+   for the whole corpus -- the column positions genuinely differ across the 1994-2019 span.
+4. **Row extraction**: travelers, their travel segments, and the four cost categories
+   (per diem, transportation, other purposes, total -- each with a foreign-currency and a
+   US-dollar-equivalent amount) are pulled out, with wrapped country lists and supplemental
+   cost rows ("Commercial airfare," "Delegation Expenses") merged in rather than dropped.
+5. **Validation**: each row's costs are checked against its own declared total, and each
+   table's rows are checked against its declared committee total. Mismatches are recorded
+   as flags, not corrected or hidden -- some of them are genuine errors in the original
+   documents.
+6. **Deduplication**: reports for the same sponsor and period are treated as the same
+   underlying report (keeping the latest publication, per the amended-report caveat above)
+   only when one is explicitly marked amended or their traveler rosters substantially
+   overlap. Some committees file more than one genuinely distinct report under the same
+   generic sponsor label for a single quarter (e.g. separate Appropriations subcommittee
+   delegations), so sponsor+period alone isn't a reliable duplicate signal.
+
+The canonical output is JSON (`travel_reports.json`, generated with `oft-parse report_text/
+travel_reports.json`): one entry per report, each with its sponsor, period, and travelers,
+each traveler with their segments, each segment with resolved dates and the full cost
+breakdown. It is not committed to this repository because of its size; regenerate it
+locally or via `oft-parse report_text/ output.json --include-superseded` (add
+`--include-superseded` to also get amended-report duplicates that would otherwise be
+excluded). [`travel_report_data.csv`](travel_report_data.csv) is a flattened, one-row-per-segment
+export in the same column layout the pre-v3 CSV used, with additional cost/flag columns
+appended for backward compatibility.
+
+An optional `--llm-fallback` flag (requires the `llm` extra, Python 3.10+, and whichever
+model's credentials `--llm-model` needs -- an Anthropic model by default, or a local/cloud
+Ollama model) routes only the small number of tables that fail deterministic parsing to a
+model, and re-validates its output against the same arithmetic checks before accepting it --
+it is never used for the happy path, and never given a free pass on the invariants. See
+[TECHNICAL_README.md](TECHNICAL_README.md) for the full CLI reference.

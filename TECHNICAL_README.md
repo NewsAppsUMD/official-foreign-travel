@@ -1,65 +1,50 @@
 # Official Foreign Travel - Technical Documentation
 
-## Version 2.1 - Enhanced Quality & Tooling
+## Version 3.0 - Layout-Aware Parser, Costs, JSON
 
-**Latest Update:** Version 2.1 adds critical security fixes, automated tooling, comprehensive testing, and CI/CD.
+**Latest update:** The parser has been rebuilt. The v2 parser used one hardcoded set of
+fixed-width column offsets and a start-of-table delimiter that a meaningful fraction of
+files never contained, silently dropping about 12% of all records and never extracting
+costs at all. v3 detects column layout per table, extracts full cost data, deduplicates
+amended reports, and outputs JSON by default (CSV is still available for compatibility).
 
-📖 **[See UPGRADE_GUIDE.md for what's new and migration instructions](UPGRADE_GUIDE.md)**
+See [CHANGELOG.md](CHANGELOG.md) for the full list of changes, and
+[about_the_data.md](about_the_data.md) for a description of the parsing pipeline and the
+source data's quirks.
 
 ### Quick Links
 - **New Users**: See [Installation](#installation) below
-- **Upgrading**: See [UPGRADE_GUIDE.md](UPGRADE_GUIDE.md)
+- **Data pipeline**: See [about_the_data.md](about_the_data.md)
 - **Contributing**: See [Development](#development) section
 
-### Version 2.1 Highlights
-
-- ✅ **Security Fix**: Fixed YAML loading vulnerability (CVE prevention)
-- 🚀 **Automated Downloads**: New `oft-download-legislators` CLI tool
-- 🧪 **Test Suite**: Comprehensive pytest suite with 90%+ coverage
-- 🔄 **CI/CD**: GitHub Actions for automated testing and validation
-- 📦 **Dependencies**: Added `requirements.txt` and `requirements-dev.txt`
-- ⚠️  **Deprecation Warnings**: Old scripts now warn users to upgrade
-- 🔍 **Strict Type Checking**: Enabled for all new code
-- 🎯 **Enhanced Linting**: Ruff configuration with multiple rule sets
-
-## Version 2.0 - Python 3 + Pydantic Upgrade
-
-This is a modernized version of the foreign travel scraper, completely refactored for Python 3 with Pydantic schemas, better organization, and improved robustness.
-
-## What's New in v2.0
-
-### Major Improvements
-
-1. **Python 3 Compatibility**: Fully updated for Python 3.9+
-2. **Pydantic Schemas**: Strong data validation and type safety
-3. **Better Organization**: Proper package structure with clear separation of concerns
-4. **Robust Error Handling**: Comprehensive logging and retry logic
-5. **Type Hints**: Throughout the codebase for better IDE support
-6. **Modern CLI**: Clean command-line interfaces with argparse
-7. **Configuration Management**: Centralized config with environment variable support
-
-### Architecture
+## Architecture
 
 ```
 official_foreign_travel/
-├── models/              # Pydantic data models
-│   ├── travel.py       # TravelRecord, TravelRecordInput, TravelRecordOutput
-│   ├── member.py       # Member, MemberInput
-│   ├── committee.py    # Committee
-│   └── match.py        # NameMatch, NameMatchResult
-├── scrapers/           # Web scraping and parsing
-│   ├── report_downloader.py  # Download reports from clerk.house.gov
-│   └── report_parser.py       # Parse fixed-width text files
-├── matchers/           # Name matching
-│   └── name_matcher.py        # Fuzzy name matching with temporal indexing
-├── utils/              # Utilities
-│   ├── config.py      # Configuration management
-│   ├── logging.py     # Logging setup
-│   └── text.py        # Text processing utilities
-└── cli/                # Command-line interfaces
-    ├── download.py    # Download reports CLI
-    ├── parse.py       # Parse reports CLI
-    └── test_matching.py  # Test name matching CLI
+├── parsing/                    # The parser pipeline
+│   ├── segmenter.py           # Split a file into per-table blocks
+│   ├── header.py              # Extract sponsor + reporting period from a table's title
+│   ├── layout.py              # Detect column boundaries per table
+│   ├── costs.py                # Parse cost cells (amounts, footnotes, military-air)
+│   ├── dates.py                # Resolve row dates against the table's period
+│   ├── rows.py                  # Extract travelers/segments, merge continuations
+│   ├── assemble.py             # Wire everything together into Report objects
+│   ├── validate.py             # Arithmetic/date invariant checks (flags, never drops)
+│   ├── dedup.py                 # Amended-report deduplication
+│   ├── serialize.py            # JSON / CSV / JSONL output
+│   └── llm_fallback.py         # Optional Anthropic-API repair pass (off by default)
+├── models/
+│   ├── report.py               # Report -> Sponsor/Period/Traveler/TravelSegment/Costs
+│   ├── travel.py, member.py, committee.py, match.py   # Legacy flat models, still used
+├── scrapers/
+│   ├── report_downloader.py    # Download reports from clerk.house.gov
+│   └── report_parser.py        # Thin orchestrator over parsing/ (kept for import compat)
+├── matchers/
+│   └── name_matcher.py         # Fuzzy name matching with temporal indexing
+├── utils/
+│   ├── config.py, logging.py, text.py
+└── cli/
+    ├── download.py, parse.py, test_matching.py, download_legislators.py
 ```
 
 ## Installation
@@ -67,160 +52,162 @@ official_foreign_travel/
 ### Requirements
 
 - Python 3.9 or higher
-- pip
+- [uv](https://docs.astral.sh/uv/)
 
 ### Install Dependencies
 
 ```bash
-pip install -r requirements.txt
+uv sync --all-extras
 ```
 
-### Install Package (Optional)
+This creates a `.venv` and installs the command-line tools: `oft-download`, `oft-parse`,
+`oft-test-matching`, `oft-download-legislators`. Prefix all commands below with `uv run`
+(e.g. `uv run oft-parse ...`), or activate `.venv` first.
 
-For development:
-```bash
-pip install -e .
-```
-
-This will install the command-line tools: `oft-download`, `oft-parse`, `oft-test-matching`
+The optional `llm` extra (Simon Willison's [`llm`](https://llm.datasette.io/) library,
+plus the `llm-anthropic` and `llm-ollama` plugins) is installed by `--all-extras`; omit
+it (`uv sync`) if you don't plan to use `--llm-fallback`. This extra requires Python
+3.10+ (the rest of the package still supports 3.9) and is skipped automatically on 3.9.
 
 ## Usage
 
-### Method 1: Modern CLI Tools
-
-#### Download Reports
+### Download Reports
 
 ```bash
-# Using installed CLI tool
 oft-download
-
-# Or directly
-python -m official_foreign_travel.cli.download
-
-# With options
 oft-download --start-year 2015 --end-year 2020 --log-level DEBUG
 ```
 
-#### Parse Reports
+### Parse Reports
 
 ```bash
-# Parse directory of reports
-oft-parse report_text/ output.csv
+# JSON is the default (canonical) format, inferred from the .json extension
+oft-parse report_text/ travel_reports.json
 
-# Parse single file
-oft-parse report_text/2019q1jan15.txt output.csv
+# Flat CSV, one row per traveler segment
+oft-parse report_text/ travel_report_data.csv
 
-# With options
-oft-parse report_text/ output.csv --no-validate --log-level DEBUG
+# Single file
+oft-parse report_text/2019q1jan29.txt output.json
+
+# Force a format regardless of extension
+oft-parse report_text/ output.txt --format jsonl
+
+# Include amended-report duplicates that were superseded by a later publication
+oft-parse report_text/ output.json --include-superseded
+
+# Fall back to fuzzy name matching (requires legislator YAML data -- see below)
+oft-parse report_text/ output.json --fuzzy-name-matching
+
+# Route tables that fail deterministic parsing to a model, via `llm` (off by default)
+export ANTHROPIC_API_KEY=...
+oft-parse report_text/ output.json --llm-fallback --fail-report unresolved.json
+
+# Or target a different model -- any `llm`-registered id works, e.g. an Ollama model
+export OLLAMA_HOST=https://ollama.com OLLAMA_API_KEY=...
+oft-parse report_text/ output.json --llm-fallback --llm-model llama3.1:70b-cloud
 ```
 
-#### Test Name Matching
+### Test Name Matching
 
 ```bash
-# Test matching on all reports
 oft-test-matching report_text/ matching_issues.txt
-
-# With custom cache location
 oft-test-matching report_text/ issues.txt --cache my_cache.pickle
 ```
 
-#### Download Legislator Data (New in v2.1)
+### Download Legislator Data
+
+Required for `--fuzzy-name-matching`:
 
 ```bash
-# Download current and historical legislator data
 oft-download-legislators
-
-# Download to specific directory
 oft-download-legislators --output-dir data/
-
-# Download only current legislators
 oft-download-legislators --current-only
-
-# Or use standalone script
-python download_legislators.py
 ```
 
-### Method 2: Backward-Compatible Scripts
-
-For easier migration, wrapper scripts are provided that mimic the old interface:
-
-```bash
-# Download reports (like old scraper_report_text.py)
-python scraper_report_text_new.py
-
-# Parse reports (like old scraper.py)
-python scraper_new.py report_text/ output.csv
-
-# Test matching (like old name_search_test.py)
-python name_search_test_new.py report_text/ matching_issues.txt
-```
-
-### Method 3: Python API
+### Python API
 
 ```python
 from pathlib import Path
-from official_foreign_travel.scrapers import ReportDownloader, ReportParser
-from official_foreign_travel.matchers import NameMatcher
-from official_foreign_travel.utils.config import Config
+from official_foreign_travel.parsing.assemble import assemble_directory, load_name_index
+from official_foreign_travel.parsing.dedup import dedup_reports
+from official_foreign_travel.parsing.validate import validate_reports
+from official_foreign_travel.parsing.serialize import write_json
 
-# Configure
-config = Config(
-    start_year=2015,
-    end_year=2020,
-    report_text_dir=Path("reports")
-)
+member_index = load_name_index(Path("members.csv"))
+committee_index = load_name_index(Path("committees.csv"))
 
-# Download reports
-downloader = ReportDownloader(config)
-# ... use downloader methods
-
-# Parse reports
-parser = ReportParser(config)
-records = parser.parse_directory(Path("report_text"))
-parser.write_csv(records, Path("output.csv"))
-
-# Match names
-matcher = NameMatcher(config)
-matcher.initialize()
-result = matcher.search_by_name("Hon. John Doe", "1/15/2019", "1/20/2019")
-print(f"Best match: {result.best_bioguide_id} (score: {result.top_match.score})")
+reports = list(assemble_directory(Path("report_text"), member_index, committee_index))
+validate_reports(reports)
+dedup_reports(reports)
+write_json(reports, Path("output.json"))
 ```
 
-## Data Models
-
-### TravelRecord
-
-Validated travel record with type checking:
+Or via the `ReportParser` orchestrator:
 
 ```python
-class TravelRecord:
+from pathlib import Path
+from official_foreign_travel.scrapers import ReportParser
+
+parser = ReportParser()
+reports = parser.parse_and_finalize(Path("report_text"))  # validated + deduplicated
+parser.write_json(reports, Path("output.json"))
+```
+
+## Data Model
+
+`Report` is the top-level unit (one per table): a sponsor, a reporting period, and a list
+of travelers, each with their travel segments.
+
+```python
+class Report(BaseModel):
+    report_id: str                 # "<source-file-stem>-<table-index>"
+    source_file: str
+    table_index: int
+    amended: bool
+    superseded_by: Optional[str]   # set if a later/duplicate report replaces this one
+    parse_method: Literal["deterministic", "llm"]
+    sponsor: Sponsor                # type, name, code, raw
+    period: Optional[Period]        # start, end, year, quarter
+    travelers: List[Traveler]
+    committee_total: Optional[Costs]
+    footnotes: Dict[str, str]
+    flags: List[str]               # anything the pipeline couldn't fully resolve
+
+class Traveler(BaseModel):
     name: str
-    member_id: Optional[str]  # Bioguide ID (pattern: ^[A-Z][0-9]{6}$)
     honorific: Optional[str]
-    arrival_date: datetime
-    departure_date: datetime
-    country: str
-    table_header: Optional[str]
-    committee: Optional[str]
-    committee_code: Optional[str]
-    source_file: Optional[str]
-    year: int
+    bioguide_id: Optional[str]     # exact match, then fuzzy fallback; else None + flagged
+    match_confidence: Optional[float]
+    segments: List[TravelSegment]
+
+class TravelSegment(BaseModel):
+    arrival_date: Optional[date]
+    departure_date: Optional[date]
+    country_raw: str
+    countries: List[str]           # best-effort split of country_raw
+    costs: Costs                   # per_diem/transportation/other/total, each FC + USD
+    flags: List[str]
+
+class Costs(BaseModel):
+    per_diem: CostGroup
+    transportation: CostGroup
+    other: CostGroup
+    total: CostGroup
+
+class CostGroup(BaseModel):
+    foreign_currency: CostCell
+    us_dollar: CostCell
+
+class CostCell(BaseModel):
+    amount: Optional[Decimal]      # serialized as a string in JSON
+    footnotes: List[str]
+    military_air: bool
 ```
 
-### NameMatchResult
-
-Result of name matching with confidence flags:
-
-```python
-class NameMatchResult:
-    query_name: str
-    arrival_date: str
-    departure_date: str
-    matches: List[NameMatch]
-    top_match: Optional[NameMatch]
-    is_confident: bool
-    is_inconclusive: bool
-```
+Nothing is ever silently dropped: a row that can't be fully resolved (an unparseable date,
+a cost cell that doesn't look like a number, a table whose row costs don't sum to its
+declared total) is kept with the relevant flag set, so it can be reviewed rather than lost.
 
 ## Configuration
 
@@ -260,116 +247,58 @@ Configuration can be set via:
 - `request_timeout`: HTTP timeout in seconds (default: 30)
 - `retry_attempts`: Number of retry attempts (default: 3)
 - `retry_delay`: Delay between retries (default: 2.0)
-- `min_match_score`: Minimum score for confident match (default: 3.0)
-- `ambiguity_threshold`: Threshold for ambiguous matches (default: 1.1)
+- `min_match_score`: Minimum score for a confident fuzzy name match (default: 3.0)
+- `ambiguity_threshold`: Threshold for ambiguous fuzzy matches (default: 1.1)
 - `log_level`: Logging level (default: INFO)
 - `log_file`: Optional log file path
-
-## Features
-
-### Improved Scraper
-
-- **Retry logic**: Automatic retries with exponential backoff
-- **Better error handling**: Comprehensive exception handling and logging
-- **Progress tracking**: Real-time progress updates
-- **Concurrent-safe**: Can be safely interrupted and resumed
-
-### Enhanced Name Matching
-
-- **Time-indexed database**: Only searches legislators active during travel dates
-- **Fuzzy matching**: Handles variations in names, nicknames, middle names
-- **Confidence scoring**: Flags low-confidence and ambiguous matches
-- **Caching**: Pickle cache for fast reloads
-- **Unicode support**: Proper handling of accents and international characters
-
-### Data Validation
-
-- **Pydantic models**: Automatic validation of all data
-- **Date validation**: Ensures departure is after arrival
-- **Pattern validation**: Validates Bioguide ID format
-- **Type safety**: Runtime type checking
 
 ## Development
 
 ### Run Tests
 
 ```bash
-pytest tests/
+uv run pytest tests/
 ```
 
-### Code Formatting
+`tests/test_corpus_regression.py` runs the full parser against `report_text/` and asserts
+it never parses fewer records than the legacy parser did per year (`tests/baseline_counts.json`);
+it's skipped automatically if `report_text/` isn't present.
+
+### Code Formatting, Type Checking, Linting
 
 ```bash
-black official_foreign_travel/
+uv run black official_foreign_travel/
+uv run mypy official_foreign_travel/
+uv run ruff check official_foreign_travel/
 ```
-
-### Type Checking
-
-```bash
-mypy official_foreign_travel/
-```
-
-### Linting
-
-```bash
-ruff check official_foreign_travel/
-```
-
-## Migration Guide
-
-### From v1.0 to v2.0
-
-1. **Install dependencies**: `pip install -r requirements.txt`
-
-2. **Update imports**:
-   ```python
-   # Old
-   import scraper
-   import name_search
-
-   # New
-   from official_foreign_travel.scrapers import ReportParser
-   from official_foreign_travel.matchers import NameMatcher
-   ```
-
-3. **Use new CLI or wrappers**:
-   - Replace `python scraper_report_text.py` with `python scraper_report_text_new.py`
-   - Replace `python scraper.py` with `python scraper_new.py`
-   - Or use new CLI: `oft-download`, `oft-parse`, etc.
-
-4. **Update data models**:
-   - Input/output now uses Pydantic models
-   - CSV format remains compatible
 
 ## Troubleshooting
 
-### "YAML file not found"
+### "YAML file not found" (only relevant to `--fuzzy-name-matching`)
 
-**New in v2.1:** Use the automated download tool:
 ```bash
 oft-download-legislators
-# or
-python download_legislators.py
 ```
 
 Or download manually from:
 - https://raw.githubusercontent.com/unitedstates/congress-legislators/master/legislators-current.yaml
 - https://raw.githubusercontent.com/unitedstates/congress-legislators/master/legislators-historical.yaml
 
-Place in project root directory.
+Place in the project root, or point `OFT_LEGISLATORS_CURRENT_YAML` /
+`OFT_LEGISLATORS_HISTORICAL_YAML` at them.
 
 ### "Members CSV not found"
 
-Ensure `members.csv` and `committees.csv` are in the project root or specify paths via config.
+Ensure `members.csv` and `committees.csv` are in the project root or specify paths via
+`--members-csv`/`--committees-csv` or config.
 
-### Name matching is slow
+### A table has a `LAYOUT_LOW_CONFIDENCE` or `LAYOUT_UNDETECTED` flag
 
-Use caching:
-```bash
-oft-test-matching report_text/ output.txt --cache names_index.pickle
-```
-
-The first run will be slow, but subsequent runs will be fast.
+The table's column-header block didn't match cleanly (garbled OCR, a genuinely unusual
+layout). Either accept the gap, or run with `--llm-fallback` (optionally `--llm-model` to
+pick a different model) to route just those tables to a model for a second attempt (still
+re-validated against the same arithmetic checks before being accepted). Larger tables can
+take a few minutes per table -- this is normal generation time, not a hang.
 
 ## License
 
@@ -379,7 +308,8 @@ MIT License (inherited from original project)
 
 - Original authors: @eric_bickel, @ryanes
 - Data for Democracy / ProPublica collaboration
-- Python 3 + Pydantic upgrade: Claude Code v2.0 refactoring
+- Python 3 + Pydantic upgrade (v2.0): Claude Code
+- Layout-aware parser rebuild (v3.0): Claude Code
 
 ## Data Sources
 
