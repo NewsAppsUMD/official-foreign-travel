@@ -6,6 +6,8 @@ import json
 import sys
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from ..models.report import Report
 from ..review.server import run_server
 
@@ -37,8 +39,21 @@ def main() -> int:
         print(f"Error: file not found: {args.parsed_json}")
         return 1
 
-    payload = json.loads(args.parsed_json.read_text(encoding="utf-8"))
-    reports = [Report.model_validate(r) for r in payload["reports"]]
+    try:
+        payload = json.loads(args.parsed_json.read_text(encoding="utf-8"))
+        reports = [Report.model_validate(r) for r in payload["reports"]]
+    except json.JSONDecodeError as e:
+        print(f"Error: invalid JSON in {args.parsed_json}: {e}")
+        return 1
+    except KeyError:
+        print(
+            f"Error: {args.parsed_json} is missing a top-level 'reports' key "
+            "(is this an oft-parse output file?)"
+        )
+        return 1
+    except ValidationError as e:
+        print(f"Error: {args.parsed_json} contains invalid report data: {e}")
+        return 1
 
     run_server(reports, args.report_text_dir, args.corrections, host=args.host, port=args.port)
     return 0
