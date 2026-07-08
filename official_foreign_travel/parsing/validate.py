@@ -18,6 +18,9 @@ def validate_report(report: Report, tolerance: Decimal = DEFAULT_TOLERANCE) -> R
     """
     Check arithmetic and date invariants, appending flags in place. Never mutates amounts.
 
+    Idempotent: clears its own flags before recomputing, so it's safe to call again
+    on a report that's already been through validation (e.g. after a correction).
+
     Checks:
       - Each segment's per_diem + transportation + other ~= total (ROW_SUM_MISMATCH)
       - Sum of all segment totals ~= the table's committee total (TABLE_SUM_MISMATCH)
@@ -31,6 +34,11 @@ def validate_report(report: Report, tolerance: Decimal = DEFAULT_TOLERANCE) -> R
         The same Report, with `flags` (report-level) and segment `flags` extended
     """
     all_segments = [seg for traveler in report.travelers for seg in traveler.segments]
+
+    for segment in all_segments:
+        if "ROW_SUM_MISMATCH" in segment.flags:
+            segment.flags.remove("ROW_SUM_MISMATCH")
+    report.flags = [f for f in report.flags if f not in ("TABLE_SUM_MISMATCH", "MISSING_COMMITTEE_TOTAL")]
 
     for segment in all_segments:
         declared_total = segment.costs.total.us_dollar.amount

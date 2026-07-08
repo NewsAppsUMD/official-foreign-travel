@@ -104,6 +104,7 @@ from official_foreign_travel.models.report import (
     Traveler,
     TravelSegment,
 )
+from official_foreign_travel.parsing.validate import validate_report
 from official_foreign_travel.review.corrections import apply_corrections
 
 
@@ -169,3 +170,51 @@ class TestApplyCorrections:
         assert segment.costs.total.us_dollar.amount == Decimal("999.00")
         # per_diem (100.00) no longer matches the corrected total (999.00) -> flagged
         assert "ROW_SUM_MISMATCH" in segment.flags
+
+    def test_correction_fixing_arithmetic_clears_stale_row_sum_mismatch(self):
+        report = _report("r-1")
+        segment = report.travelers[0].segments[0]
+        segment.costs.total.us_dollar.amount = Decimal("999.00")
+        validate_report(report)
+        assert "ROW_SUM_MISMATCH" in segment.flags
+
+        corrections = {
+            "r-1": {
+                "status": "edited",
+                "edits": {
+                    "travelers[0].segments[0].costs.total.us_dollar.amount": "100.00",
+                },
+            }
+        }
+        result = apply_corrections([report], corrections)
+        fixed_segment = result[0].travelers[0].segments[0]
+        assert fixed_segment.costs.total.us_dollar.amount == Decimal("100.00")
+        assert "ROW_SUM_MISMATCH" not in fixed_segment.flags
+
+    def test_edit_with_invalid_path_does_not_silently_apply(self):
+        report = _report("r-1")
+        corrections = {"r-1": {"status": "edited", "edits": {"sponsor.nam": "Bogus"}}}
+        result = apply_corrections([report], corrections)
+        assert result[0].sponsor.name == "COMMITTEE ON TEST"
+        assert "MANUALLY_CORRECTED" not in result[0].flags
+
+    def test_bad_report_correction_does_not_block_other_reports(self):
+        bad_report = _report("r-bad")
+        good_report = _report("r-good")
+        corrections = {
+            "r-bad": {
+                "status": "edited",
+                "edits": {
+                    "travelers[0].segments[0].costs.total.us_dollar.amount": "not-a-number",
+                },
+            },
+            "r-good": {
+                "status": "edited",
+                "edits": {"sponsor.name": "Fixed Name"},
+            },
+        }
+        result = apply_corrections([bad_report, good_report], corrections)
+        assert result[0] is bad_report
+        assert "MANUALLY_CORRECTED" not in result[0].flags
+        assert result[1].sponsor.name == "Fixed Name"
+        assert "MANUALLY_CORRECTED" in result[1].flags

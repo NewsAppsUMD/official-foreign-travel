@@ -8,6 +8,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ..models.report import Report
 from ..parsing.validate import validate_report
+from ..utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 _TOKEN_RE = re.compile(r"^([^.\[\]]+)(\[(\d+)\])?$")
 
@@ -85,6 +88,9 @@ def apply_corrections(reports: List[Report], corrections: Dict[str, dict]) -> Li
     `edited` entry applies each dotted-path edit onto a JSON dump of the report,
     re-parses it back into a validated Report, re-runs validate_report, and tags it
     MANUALLY_CORRECTED. Reports with no entry in `corrections` are left untouched.
+
+    A report whose edits fail (bad path, out-of-range index, or a value that fails
+    Pydantic coercion) is logged and left untouched -- it doesn't abort the batch.
     """
     for index, report in enumerate(reports):
         entry = corrections.get(report.report_id)
@@ -97,10 +103,16 @@ def apply_corrections(reports: List[Report], corrections: Dict[str, dict]) -> Li
                 report.flags.append("HUMAN_CONFIRMED")
             continue
 
-        data = report.model_dump(mode="json")
-        for path, value in edits.items():
-            set_path(data, path, value)
-        corrected = Report.model_validate(data)
+        try:
+            data = report.model_dump(mode="json")
+            for path, value in edits.items():
+                get_path(data, path)
+                set_path(data, path, value)
+            corrected = Report.model_validate(data)
+        except (KeyError, IndexError, ValueError, TypeError) as e:
+            logger.warning("Skipping corrections for report %s: %s", report.report_id, e)
+            continue
+
         if "MANUALLY_CORRECTED" not in corrected.flags:
             corrected.flags.append("MANUALLY_CORRECTED")
         validate_report(corrected)
