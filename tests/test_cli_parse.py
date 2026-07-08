@@ -79,7 +79,12 @@ class TestApplyCorrections:
 
         corrections_path.write_text(
             json.dumps(
-                {report_id: {"status": "edited", "edits": {"sponsor.name": "Corrected Sponsor Name"}}}
+                {
+                    report_id: {
+                        "status": "edited",
+                        "edits": {"sponsor.name": "Corrected Sponsor Name"},
+                    }
+                }
             )
         )
 
@@ -120,7 +125,12 @@ class TestApplyCorrections:
         corrections_path.write_text("not valid json")
         out = tmp_path / "out.json"
         code = run_cli(
-            [str(FIXTURES / "2019q1jan29.txt"), str(out), "--apply-corrections", str(corrections_path)],
+            [
+                str(FIXTURES / "2019q1jan29.txt"),
+                str(out),
+                "--apply-corrections",
+                str(corrections_path),
+            ],
             monkeypatch,
         )
         assert code == 1
@@ -138,7 +148,12 @@ class TestApplyCorrections:
         )
         out = tmp_path / "out.json"
         code = run_cli(
-            [str(FIXTURES / "2019q1jan29.txt"), str(out), "--apply-corrections", str(corrections_path)],
+            [
+                str(FIXTURES / "2019q1jan29.txt"),
+                str(out),
+                "--apply-corrections",
+                str(corrections_path),
+            ],
             monkeypatch,
         )
         assert code == 0

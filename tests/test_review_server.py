@@ -159,7 +159,8 @@ class TestSaveCorrectionsEndpoint:
     def test_save_then_list_reflects_status(self, running_server):
         server, _ = running_server
         status, body = _post(
-            server, "/api/reports/r-1/corrections",
+            server,
+            "/api/reports/r-1/corrections",
             {"status": "edited", "edits": {"sponsor.name": "Fixed"}},
         )
         assert status == 200
@@ -176,7 +177,9 @@ class TestSaveCorrectionsEndpoint:
 
     def test_confirm_ok_round_trip(self, running_server):
         server, _ = running_server
-        self_status, _ = _post(server, "/api/reports/r-2/corrections", {"status": "confirmed_ok", "edits": {}})
+        self_status, _ = _post(
+            server, "/api/reports/r-2/corrections", {"status": "confirmed_ok", "edits": {}}
+        )
         assert self_status == 200
         _, detail_body = _get(server, "/api/reports/r-2")
         detail = json.loads(detail_body)
@@ -184,5 +187,7 @@ class TestSaveCorrectionsEndpoint:
 
     def test_unknown_report_id_is_404(self, running_server):
         server, _ = running_server
-        status, _ = _post(server, "/api/reports/does-not-exist/corrections", {"status": "edited", "edits": {}})
+        status, _ = _post(
+            server, "/api/reports/does-not-exist/corrections", {"status": "edited", "edits": {}}
+        )
         assert status == 404

@@ -60,7 +60,8 @@ def load_corrections(path: Path) -> Dict[str, dict]:
     """Load the corrections overlay file, or return {} if it doesn't exist yet."""
     if not path.exists():
         return {}
-    return json.loads(path.read_text(encoding="utf-8"))
+    result: Dict[str, dict] = json.loads(path.read_text(encoding="utf-8"))
+    return result
 
 
 def save_report_correction(

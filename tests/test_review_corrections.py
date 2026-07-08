@@ -54,7 +54,9 @@ class TestSetPath:
     def test_deep_chain(self):
         data = {"travelers": [{"segments": [{"costs": {"total": {"us_dollar": {"amount": "5"}}}}]}]}
         set_path(data, "travelers[0].segments[0].costs.total.us_dollar.amount", "9.99")
-        assert data["travelers"][0]["segments"][0]["costs"]["total"]["us_dollar"]["amount"] == "9.99"
+        assert (
+            data["travelers"][0]["segments"][0]["costs"]["total"]["us_dollar"]["amount"] == "9.99"
+        )
 
 
 class TestLoadCorrections:
@@ -133,23 +135,31 @@ def _cell(amount=None):
 
 def _costs(total=None):
     empty = _cell()
-    return Costs(per_diem=CostGroup(foreign_currency=empty, us_dollar=_cell(total)),
-                 transportation=CostGroup(foreign_currency=empty, us_dollar=empty),
-                 other=CostGroup(foreign_currency=empty, us_dollar=empty),
-                 total=CostGroup(foreign_currency=empty, us_dollar=_cell(total)))
+    return Costs(
+        per_diem=CostGroup(foreign_currency=empty, us_dollar=_cell(total)),
+        transportation=CostGroup(foreign_currency=empty, us_dollar=empty),
+        other=CostGroup(foreign_currency=empty, us_dollar=empty),
+        total=CostGroup(foreign_currency=empty, us_dollar=_cell(total)),
+    )
 
 
 def _report(report_id, sponsor_name="COMMITTEE ON TEST"):
     segment = TravelSegment(
-        arrival_date=date(2018, 1, 5), departure_date=date(2018, 1, 8),
-        arrival_raw="1/5", departure_raw="1/8", country_raw="Testland",
+        arrival_date=date(2018, 1, 5),
+        departure_date=date(2018, 1, 8),
+        arrival_raw="1/5",
+        departure_raw="1/8",
+        country_raw="Testland",
         costs=_costs("100.00"),
     )
     return Report(
-        report_id=report_id, source_file="x.txt", table_index=0,
+        report_id=report_id,
+        source_file="x.txt",
+        table_index=0,
         sponsor=Sponsor(type="committee", name=sponsor_name, raw=""),
         period=Period(start=date(2018, 1, 1), end=date(2018, 3, 31), year=2018, quarter=1),
-        header_raw="", travelers=[Traveler(name="A", segments=[segment])],
+        header_raw="",
+        travelers=[Traveler(name="A", segments=[segment])],
     )
 
 
