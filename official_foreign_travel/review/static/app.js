@@ -56,19 +56,20 @@ function highlightLines(range) {
   if (marked) marked.scrollIntoView({ block: "center" });
 }
 
-function fieldRow(path, value) {
+function fieldRow(path, value, nullable = false) {
   const row = document.createElement("label");
   row.className = "field-row";
   const label = document.createElement("span");
   label.textContent = path;
   const input = document.createElement("input");
   input.dataset.path = path;
-  if (value === null || value === undefined) {
-    // Blank/dot-filled cells (common for cost amounts and unparsed dates) are
-    // null, not "" -- Optional[Decimal]/Optional[date] reject "" on the way
-    // back through apply_corrections. Track this so a field left untouched
-    // (still blank) round-trips as null instead of silently failing later.
-    input.dataset.originalNull = "true";
+  if (nullable) {
+    // Optional[Decimal]/Optional[date]/Optional[str] fields (cost amounts,
+    // arrival/departure dates, honorific, bioguide_id, sponsor.code) round-trip
+    // through this input as "" whether they started blank or were cleared by
+    // the reviewer -- but apply_corrections rejects "" for non-str fields.
+    // Mark these so collectEdits sends null instead, for either case.
+    input.dataset.nullable = "true";
   }
   input.value = value ?? "";
   row.appendChild(label);
@@ -81,10 +82,10 @@ function renderForm(report, existingEdits) {
   pane.innerHTML = "";
   pane.appendChild(fieldRow("sponsor.type", report.sponsor.type));
   pane.appendChild(fieldRow("sponsor.name", report.sponsor.name));
-  pane.appendChild(fieldRow("sponsor.code", report.sponsor.code));
+  pane.appendChild(fieldRow("sponsor.code", report.sponsor.code, true));
   if (report.period) {
-    pane.appendChild(fieldRow("period.start", report.period.start));
-    pane.appendChild(fieldRow("period.end", report.period.end));
+    pane.appendChild(fieldRow("period.start", report.period.start, true));
+    pane.appendChild(fieldRow("period.end", report.period.end, true));
   }
 
   report.travelers.forEach((traveler, ti) => {
@@ -92,8 +93,8 @@ function renderForm(report, existingEdits) {
     heading.textContent = `Traveler ${ti + 1}`;
     pane.appendChild(heading);
     pane.appendChild(fieldRow(`travelers[${ti}].name`, traveler.name));
-    pane.appendChild(fieldRow(`travelers[${ti}].honorific`, traveler.honorific));
-    pane.appendChild(fieldRow(`travelers[${ti}].bioguide_id`, traveler.bioguide_id));
+    pane.appendChild(fieldRow(`travelers[${ti}].honorific`, traveler.honorific, true));
+    pane.appendChild(fieldRow(`travelers[${ti}].bioguide_id`, traveler.bioguide_id, true));
 
     traveler.segments.forEach((segment, si) => {
       const segHeading = document.createElement("h4");
@@ -102,14 +103,16 @@ function renderForm(report, existingEdits) {
       pane.appendChild(segHeading);
 
       const prefix = `travelers[${ti}].segments[${si}]`;
-      pane.appendChild(fieldRow(`${prefix}.arrival_date`, segment.arrival_date));
-      pane.appendChild(fieldRow(`${prefix}.departure_date`, segment.departure_date));
+      pane.appendChild(fieldRow(`${prefix}.arrival_date`, segment.arrival_date, true));
+      pane.appendChild(fieldRow(`${prefix}.departure_date`, segment.departure_date, true));
       pane.appendChild(fieldRow(`${prefix}.country_raw`, segment.country_raw));
 
       ["per_diem", "transportation", "other", "total"].forEach((category) => {
         ["foreign_currency", "us_dollar"].forEach((currency) => {
           const cell = segment.costs[category][currency];
-          pane.appendChild(fieldRow(`${prefix}.costs.${category}.${currency}.amount`, cell.amount));
+          pane.appendChild(
+            fieldRow(`${prefix}.costs.${category}.${currency}.amount`, cell.amount, true)
+          );
         });
       });
     });
@@ -124,8 +127,8 @@ function renderForm(report, existingEdits) {
 function collectEdits() {
   const edits = {};
   document.querySelectorAll("#form-pane [data-path]").forEach((input) => {
-    const stillBlank = input.value === "" && input.dataset.originalNull === "true";
-    edits[input.dataset.path] = stillBlank ? null : input.value;
+    const blank = input.value === "" && input.dataset.nullable === "true";
+    edits[input.dataset.path] = blank ? null : input.value;
   });
   return edits;
 }
