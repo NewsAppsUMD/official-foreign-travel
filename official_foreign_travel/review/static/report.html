@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Review Report</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div id="toolbar">
+    <a href="/">&larr; List</a>
+    <button id="prev-btn">&larr; Prev</button>
+    <button id="next-btn">Next &rarr;</button>
+    <button id="confirm-btn">Confirm OK</button>
+    <button id="save-btn">Save</button>
+    <span id="save-status"></span>
+  </div>
+  <div id="panes">
+    <pre id="raw-pane"></pre>
+    <div id="form-pane"></div>
+  </div>
+  <script src="/app.js"></script>
+  <script>renderDetail();</script>
+</body>
+</html>
