@@ -55,9 +55,8 @@ output/
 *.csv
 *.txt
 
-# Exceptions: keep requirements files
-!requirements.txt
-!requirements-dev.txt
+# Exceptions: keep test fixtures (small, deliberately-committed samples)
+!tests/fixtures/*.txt
 
 # Environment
 .env

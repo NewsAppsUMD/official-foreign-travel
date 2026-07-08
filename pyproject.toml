@@ -1,10 +1,10 @@
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
-build-backend = "setuptools.build_backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "official-foreign-travel"
-version = "2.0.0"
+version = "3.0.0"
 description = "Data scraping and analysis for U.S. House foreign travel reports"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -40,6 +40,11 @@ dev = [
     "ruff>=0.0.290",
     "types-PyYAML>=6.0.0",
     "types-requests>=2.31.0",
+]
+llm = [
+    "llm>=0.31; python_version>='3.10'",
+    "llm-anthropic>=0.25; python_version>='3.10'",
+    "llm-ollama>=0.16; python_version>='3.10'",
 ]
 
 [project.scripts]
@@ -87,21 +92,30 @@ warn_no_return = true
 check_untyped_defs = true
 strict_equality = true
 
-# Per-module options for gradual typing
-[[tool.mypy.overrides]]
-module = [
-    "scraper",
-    "scraper_report_text",
-    "name_search",
-    "name_search_test",
-]
-disallow_untyped_defs = false
-
 [[tool.mypy.overrides]]
 module = [
     "bs4.*",
 ]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# `llm` and its plugins pull in dependencies (e.g. click) using syntax newer
+# than this project's py3.9 mypy target; skip following into them rather than
+# failing to parse their source.
+module = [
+    "llm",
+    "llm.*",
+    "llm_ollama",
+    "llm_ollama.*",
+    "llm_anthropic",
+    "llm_anthropic.*",
+    "click",
+    "click.*",
+    "ollama",
+    "ollama.*",
+]
+ignore_missing_imports = true
+follow_imports = "skip"
 
 [tool.coverage.run]
 source = ["official_foreign_travel"]

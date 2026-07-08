@@ -1,12 +1,13 @@
 """CLI tool to download legislator YAML files."""
 
 import sys
+import logging
 import argparse
 from pathlib import Path
 
 import requests
 
-from ..utils.logging import get_logger, setup_logging
+from ..utils.logging import get_logger, setup_logger
 
 logger = get_logger(__name__)
 
@@ -84,7 +85,8 @@ def main():
     args = parser.parse_args()
 
     # Setup logging
-    setup_logging(level=args.log_level)
+    log_level = getattr(logging, args.log_level)
+    setup_logger("official_foreign_travel", level=log_level)
 
     # Ensure output directory exists
     args.output_dir.mkdir(parents=True, exist_ok=True)
