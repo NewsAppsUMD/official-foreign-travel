@@ -1,6 +1,7 @@
 """Corrections overlay: dotted/indexed-path edits into a report dict, persisted to disk."""
 
 import json
+import os
 import re
 import threading
 from datetime import datetime, timezone
@@ -75,7 +76,10 @@ def save_report_correction(
 
     The load-modify-write sequence is serialized by a module-level lock, so
     concurrent saves (e.g. two browser tabs) can't race and drop each other's
-    entry -- the server handles each connection on its own thread.
+    entry -- the server handles each connection on its own thread. The write
+    itself goes to a temp file and is renamed into place, so a reader (e.g. a
+    concurrently-running `oft-parse --apply-corrections`) never observes a
+    truncated/partial file mid-write.
     """
     with _SAVE_LOCK:
         corrections = load_corrections(path)
@@ -85,7 +89,9 @@ def save_report_correction(
             "edits": edits,
         }
         corrections[report_id] = entry
-        path.write_text(json.dumps(corrections, indent=2), encoding="utf-8")
+        tmp_path = path.with_suffix(path.suffix + ".tmp")
+        tmp_path.write_text(json.dumps(corrections, indent=2), encoding="utf-8")
+        os.replace(tmp_path, path)
         return entry
 
 

@@ -158,3 +158,19 @@ class TestApplyCorrections:
         )
         assert code == 0
         assert "0 of 2 matched a parsed report" in capsys.readouterr().out
+
+    def test_non_dict_corrections_file_returns_error_code(self, tmp_path, monkeypatch, capsys):
+        corrections_path = tmp_path / "corrections.json"
+        corrections_path.write_text(json.dumps([1, 2, 3]))
+        out = tmp_path / "out.json"
+        code = run_cli(
+            [
+                str(FIXTURES / "2019q1jan29.txt"),
+                str(out),
+                "--apply-corrections",
+                str(corrections_path),
+            ],
+            monkeypatch,
+        )
+        assert code == 1
+        assert "not a corrections overlay file" in capsys.readouterr().out

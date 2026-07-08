@@ -155,6 +155,14 @@ def main() -> int:
             print(f"Error: invalid JSON in {args.apply_corrections}: {e}")
             return 1
 
+        if not isinstance(corrections, dict):
+            print(
+                f"Error: {args.apply_corrections} is not a corrections overlay file "
+                "(expected a JSON object keyed by report_id, is this an oft-review "
+                "corrections.json?)"
+            )
+            return 1
+
         matched = sum(1 for r in reports if r.report_id in corrections)
         print(f"Applying corrections: {matched} of {len(corrections)} matched a parsed report")
         reports = apply_corrections(reports, corrections)

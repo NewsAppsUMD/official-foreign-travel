@@ -133,8 +133,30 @@ function collectEdits() {
   return edits;
 }
 
+function blankRequiredFields(edits) {
+  // Fields not marked nullable (sponsor.type/name, traveler name, country_raw)
+  // are required strings -- Report accepts "" for them (some already-parsed
+  // rows legitimately have a blank name/country from illegible source text),
+  // so apply_corrections won't reject it either. Left unchecked, clearing one
+  // here would save silently with no signal that anything's wrong.
+  return Object.entries(edits)
+    .filter(([path, value]) => {
+      const input = document.querySelector(`[data-path="${CSS.escape(path)}"]`);
+      return value === "" && input && input.dataset.nullable !== "true";
+    })
+    .map(([path]) => path);
+}
+
 async function saveCorrection(reportId, status) {
   const edits = status === "confirmed_ok" ? {} : collectEdits();
+  if (status === "edited") {
+    const blank = blankRequiredFields(edits);
+    if (blank.length) {
+      document.getElementById("save-status").textContent =
+        `Error: cannot save with these fields blank: ${blank.join(", ")}`;
+      return;
+    }
+  }
   const res = await fetch(`/api/reports/${encodeURIComponent(reportId)}/corrections`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
