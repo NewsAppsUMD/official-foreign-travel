@@ -237,3 +237,22 @@ class TestApplyCorrections:
         assert "MANUALLY_CORRECTED" not in result[0].flags
         assert result[1].sponsor.name == "Fixed Name"
         assert "MANUALLY_CORRECTED" in result[1].flags
+
+    def test_null_amount_for_a_blank_cost_cell_does_not_block_other_edits(self):
+        """The review UI sends null (not "") for a cost/date field a reviewer left
+        blank -- Optional[Decimal]/Optional[date] reject "" outright, which would
+        otherwise silently drop every edit on any report with a blank cost cell."""
+        report = _report("r-1")
+        corrections = {
+            "r-1": {
+                "status": "edited",
+                "edits": {
+                    "sponsor.name": "Fixed Name",
+                    "travelers[0].segments[0].costs.transportation.us_dollar.amount": None,
+                },
+            }
+        }
+        result = apply_corrections([report], corrections)
+        assert result[0].sponsor.name == "Fixed Name"
+        assert result[0].travelers[0].segments[0].costs.transportation.us_dollar.amount is None
+        assert "MANUALLY_CORRECTED" in result[0].flags

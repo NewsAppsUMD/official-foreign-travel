@@ -63,6 +63,13 @@ function fieldRow(path, value) {
   label.textContent = path;
   const input = document.createElement("input");
   input.dataset.path = path;
+  if (value === null || value === undefined) {
+    // Blank/dot-filled cells (common for cost amounts and unparsed dates) are
+    // null, not "" -- Optional[Decimal]/Optional[date] reject "" on the way
+    // back through apply_corrections. Track this so a field left untouched
+    // (still blank) round-trips as null instead of silently failing later.
+    input.dataset.originalNull = "true";
+  }
   input.value = value ?? "";
   row.appendChild(label);
   row.appendChild(input);
@@ -110,14 +117,15 @@ function renderForm(report, existingEdits) {
 
   Object.entries(existingEdits).forEach(([path, value]) => {
     const input = pane.querySelector(`[data-path="${CSS.escape(path)}"]`);
-    if (input) input.value = value;
+    if (input) input.value = value ?? "";
   });
 }
 
 function collectEdits() {
   const edits = {};
   document.querySelectorAll("#form-pane [data-path]").forEach((input) => {
-    edits[input.dataset.path] = input.value;
+    const stillBlank = input.value === "" && input.dataset.originalNull === "true";
+    edits[input.dataset.path] = stillBlank ? null : input.value;
   });
   return edits;
 }
