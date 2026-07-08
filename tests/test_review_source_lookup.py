@@ -21,3 +21,9 @@ class TestGetRawLines:
         report = reports[0]
         report.source_file = "does-not-exist.txt"
         assert get_raw_lines(report, tmp_path) is None
+
+    def test_out_of_range_table_index_returns_none(self):
+        reports = assemble_file(FIXTURES / "2019q1jan29.txt")
+        report = reports[0]
+        report.table_index = 9999
+        assert get_raw_lines(report, FIXTURES) is None

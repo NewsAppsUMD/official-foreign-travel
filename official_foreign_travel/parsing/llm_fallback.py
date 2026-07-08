@@ -226,9 +226,14 @@ def _match_members_in_place(
 
 
 def _load_block(report: Report, report_text_dir: Path) -> Optional[TableBlock]:
+    """Re-locate a report's raw table block by re-segmenting its source file.
+
+    Shared by the LLM fallback and the review UI (official_foreign_travel.review.
+    source_lookup) -- keep this caller-agnostic rather than LLM-repair-specific.
+    """
     file_path = report_text_dir / report.source_file
     if not file_path.exists():
-        logger.warning(f"Cannot load source file for LLM repair: {file_path}")
+        logger.warning(f"Cannot load source file: {file_path}")
         return None
     text = file_path.read_text(encoding="utf-8", errors="replace")
     blocks = segment_tables(text, report.source_file)
