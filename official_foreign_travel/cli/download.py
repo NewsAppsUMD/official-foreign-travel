@@ -10,7 +10,7 @@ from ..utils.logging import setup_logger
 from ..utils.config import Config, get_config
 
 
-def main():
+def main() -> None:
     """Main entry point for download CLI."""
     parser = argparse.ArgumentParser(
         description="Download foreign travel reports from House Clerk website"
