@@ -89,3 +89,83 @@ class TestSaveReportCorrection:
         save_report_correction(path, "r-2", "edited", {"a": "1"})
         data = load_corrections(path)
         assert set(data.keys()) == {"r-1", "r-2"}
+
+
+from datetime import date
+from decimal import Decimal
+
+from official_foreign_travel.models.report import (
+    Costs,
+    CostCell,
+    CostGroup,
+    Period,
+    Report,
+    Sponsor,
+    Traveler,
+    TravelSegment,
+)
+from official_foreign_travel.review.corrections import apply_corrections
+
+
+def _cell(amount=None):
+    return CostCell(amount=Decimal(amount) if amount is not None else None, raw="")
+
+
+def _costs(total=None):
+    empty = _cell()
+    return Costs(per_diem=CostGroup(foreign_currency=empty, us_dollar=_cell(total)),
+                 transportation=CostGroup(foreign_currency=empty, us_dollar=empty),
+                 other=CostGroup(foreign_currency=empty, us_dollar=empty),
+                 total=CostGroup(foreign_currency=empty, us_dollar=_cell(total)))
+
+
+def _report(report_id, sponsor_name="COMMITTEE ON TEST"):
+    segment = TravelSegment(
+        arrival_date=date(2018, 1, 5), departure_date=date(2018, 1, 8),
+        arrival_raw="1/5", departure_raw="1/8", country_raw="Testland",
+        costs=_costs("100.00"),
+    )
+    return Report(
+        report_id=report_id, source_file="x.txt", table_index=0,
+        sponsor=Sponsor(type="committee", name=sponsor_name, raw=""),
+        period=Period(start=date(2018, 1, 1), end=date(2018, 3, 31), year=2018, quarter=1),
+        header_raw="", travelers=[Traveler(name="A", segments=[segment])],
+    )
+
+
+class TestApplyCorrections:
+    def test_report_with_no_correction_entry_is_unchanged(self):
+        report = _report("r-1")
+        result = apply_corrections([report], {})
+        assert result[0] is report
+        assert "MANUALLY_CORRECTED" not in result[0].flags
+
+    def test_confirmed_ok_with_no_edits_gets_flagged_and_unchanged(self):
+        report = _report("r-1")
+        corrections = {"r-1": {"status": "confirmed_ok", "edits": {}}}
+        result = apply_corrections([report], corrections)
+        assert result[0].sponsor.name == "COMMITTEE ON TEST"
+        assert "HUMAN_CONFIRMED" in result[0].flags
+
+    def test_edit_applies_and_flags_manually_corrected(self):
+        report = _report("r-1")
+        corrections = {"r-1": {"status": "edited", "edits": {"sponsor.name": "Fixed Name"}}}
+        result = apply_corrections([report], corrections)
+        assert result[0].sponsor.name == "Fixed Name"
+        assert "MANUALLY_CORRECTED" in result[0].flags
+
+    def test_edit_to_a_cost_amount_is_reflected_and_revalidated(self):
+        report = _report("r-1")
+        corrections = {
+            "r-1": {
+                "status": "edited",
+                "edits": {
+                    "travelers[0].segments[0].costs.total.us_dollar.amount": "999.00",
+                },
+            }
+        }
+        result = apply_corrections([report], corrections)
+        segment = result[0].travelers[0].segments[0]
+        assert segment.costs.total.us_dollar.amount == Decimal("999.00")
+        # per_diem (100.00) no longer matches the corrected total (999.00) -> flagged
+        assert "ROW_SUM_MISMATCH" in segment.flags

@@ -6,6 +6,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from ..models.report import Report
+from ..parsing.validate import validate_report
+
 _TOKEN_RE = re.compile(r"^([^.\[\]]+)(\[(\d+)\])?$")
 
 
@@ -72,3 +75,35 @@ def save_report_correction(
     corrections[report_id] = entry
     path.write_text(json.dumps(corrections, indent=2), encoding="utf-8")
     return entry
+
+
+def apply_corrections(reports: List[Report], corrections: Dict[str, dict]) -> List[Report]:
+    """
+    Merge saved human corrections onto assembled reports, in place (by replacement).
+
+    A `confirmed_ok` entry with no edits just tags the report HUMAN_CONFIRMED. An
+    `edited` entry applies each dotted-path edit onto a JSON dump of the report,
+    re-parses it back into a validated Report, re-runs validate_report, and tags it
+    MANUALLY_CORRECTED. Reports with no entry in `corrections` are left untouched.
+    """
+    for index, report in enumerate(reports):
+        entry = corrections.get(report.report_id)
+        if entry is None:
+            continue
+
+        edits = entry.get("edits") or {}
+        if not edits:
+            if entry.get("status") == "confirmed_ok" and "HUMAN_CONFIRMED" not in report.flags:
+                report.flags.append("HUMAN_CONFIRMED")
+            continue
+
+        data = report.model_dump(mode="json")
+        for path, value in edits.items():
+            set_path(data, path, value)
+        corrected = Report.model_validate(data)
+        if "MANUALLY_CORRECTED" not in corrected.flags:
+            corrected.flags.append("MANUALLY_CORRECTED")
+        validate_report(corrected)
+        reports[index] = corrected
+
+    return reports
