@@ -79,6 +79,11 @@ def main() -> int:
         help="Write tables that still fail after --llm-fallback to this JSON file for review",
     )
     parser.add_argument(
+        "--apply-corrections",
+        type=Path,
+        help="Merge human corrections from this file (written by oft-review) into the output",
+    )
+    parser.add_argument(
         "--log-level",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         default="INFO",
@@ -135,6 +140,12 @@ def main() -> int:
             member_index=report_parser.member_index,
             name_matcher=name_matcher,
         )
+
+    if args.apply_corrections:
+        from ..review.corrections import apply_corrections, load_corrections
+
+        corrections = load_corrections(args.apply_corrections)
+        reports = apply_corrections(reports, corrections)
 
     if output_format == "json":
         report_parser.write_json(reports, args.output, include_superseded=args.include_superseded)

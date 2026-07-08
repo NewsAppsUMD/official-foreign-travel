@@ -65,3 +65,38 @@ class TestParseCli:
         all_count = len(json.loads(out_all.read_text())["reports"])
 
         assert all_count >= default_count
+
+
+class TestApplyCorrections:
+    def test_correction_is_merged_into_output(self, tmp_path, monkeypatch):
+        corrections_path = tmp_path / "corrections.json"
+        # Real report_id for the first table in this fixture, from prior runs of oft-parse.
+        out_first = tmp_path / "first.json"
+        run_cli([str(FIXTURES / "2019q1jan29.txt"), str(out_first)], monkeypatch)
+        first_data = json.loads(out_first.read_text())
+        report_id = first_data["reports"][0]["report_id"]
+        original_sponsor_name = first_data["reports"][0]["sponsor"]["name"]
+
+        corrections_path.write_text(
+            json.dumps(
+                {report_id: {"status": "edited", "edits": {"sponsor.name": "Corrected Sponsor Name"}}}
+            )
+        )
+
+        out_corrected = tmp_path / "corrected.json"
+        code = run_cli(
+            [
+                str(FIXTURES / "2019q1jan29.txt"),
+                str(out_corrected),
+                "--apply-corrections",
+                str(corrections_path),
+            ],
+            monkeypatch,
+        )
+        assert code == 0
+
+        corrected_data = json.loads(out_corrected.read_text())
+        corrected_report = next(r for r in corrected_data["reports"] if r["report_id"] == report_id)
+        assert corrected_report["sponsor"]["name"] == "Corrected Sponsor Name"
+        assert corrected_report["sponsor"]["name"] != original_sponsor_name
+        assert "MANUALLY_CORRECTED" in corrected_report["flags"]
