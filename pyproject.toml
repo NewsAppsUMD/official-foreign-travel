@@ -52,6 +52,7 @@ oft-download = "official_foreign_travel.cli.download:main"
 oft-parse = "official_foreign_travel.cli.parse:main"
 oft-test-matching = "official_foreign_travel.cli.test_matching:main"
 oft-download-legislators = "official_foreign_travel.cli.download_legislators:main"
+oft-review = "official_foreign_travel.cli.review:main"
 
 [tool.setuptools.packages.find]
 include = ["official_foreign_travel*"]
