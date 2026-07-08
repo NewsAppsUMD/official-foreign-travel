@@ -45,6 +45,9 @@ ENV/
 *.swo
 *~
 
+# Git worktrees
+.worktrees/
+
 # Logs
 *.log
 
