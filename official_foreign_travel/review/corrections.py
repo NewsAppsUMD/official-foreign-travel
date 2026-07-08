@@ -1,7 +1,10 @@
 """Corrections overlay: dotted/indexed-path edits into a report dict, persisted to disk."""
 
+import json
 import re
-from typing import Any, List, Optional, Tuple
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 _TOKEN_RE = re.compile(r"^([^.\[\]]+)(\[(\d+)\])?$")
 
@@ -42,3 +45,30 @@ def set_path(data: Any, path: str, value: Any) -> None:
         current[last_key][last_index] = value
     else:
         current[last_key] = value
+
+
+def load_corrections(path: Path) -> Dict[str, dict]:
+    """Load the corrections overlay file, or return {} if it doesn't exist yet."""
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def save_report_correction(
+    path: Path, report_id: str, status: str, edits: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    Save (replacing) one report's correction entry, preserving all others.
+
+    Returns:
+        The entry that was just saved.
+    """
+    corrections = load_corrections(path)
+    entry = {
+        "status": status,
+        "reviewed_at": datetime.now(timezone.utc).isoformat(),
+        "edits": edits,
+    }
+    corrections[report_id] = entry
+    path.write_text(json.dumps(corrections, indent=2), encoding="utf-8")
+    return entry
