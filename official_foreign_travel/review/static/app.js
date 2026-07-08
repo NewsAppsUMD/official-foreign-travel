@@ -11,15 +11,67 @@ async function fetchReports() {
   return res.json();
 }
 
-async function renderList() {
-  const reports = await fetchReports();
-  const filterSelect = document.getElementById("status-filter");
-  filterSelect.onchange = () => renderRows(reports, filterSelect.value);
-  renderRows(reports, "");
+const listSort = { column: null, ascending: true };
+
+function populateFlagFilter(reports) {
+  const select = document.getElementById("flag-filter");
+  const flags = Array.from(new Set(reports.flatMap((r) => r.flags))).sort();
+  flags.forEach((flag) => {
+    const option = document.createElement("option");
+    option.value = flag;
+    option.textContent = flag;
+    select.appendChild(option);
+  });
 }
 
-function renderRows(reports, statusFilter) {
-  const filtered = statusFilter ? reports.filter((r) => r.status === statusFilter) : reports;
+async function renderList() {
+  const reports = await fetchReports();
+  populateFlagFilter(reports);
+
+  const statusSelect = document.getElementById("status-filter");
+  const flagSelect = document.getElementById("flag-filter");
+  const rerender = () => renderRows(reports, statusSelect.value, flagSelect.value);
+  statusSelect.onchange = rerender;
+  flagSelect.onchange = rerender;
+
+  document.querySelectorAll("th[data-sort]").forEach((th) => {
+    th.onclick = () => {
+      const column = th.dataset.sort;
+      listSort.ascending = listSort.column === column ? !listSort.ascending : true;
+      listSort.column = column;
+      rerender();
+    };
+  });
+
+  renderRows(reports, "", "");
+}
+
+function sortReports(reports, column, ascending) {
+  if (!column) return reports;
+  const sorted = [...reports].sort((a, b) => {
+    const [av, bv] = [a[column], b[column]];
+    if (av < bv) return -1;
+    if (av > bv) return 1;
+    return 0;
+  });
+  if (!ascending) sorted.reverse();
+  return sorted;
+}
+
+function updateSortIndicators() {
+  document.querySelectorAll("th[data-sort]").forEach((th) => {
+    const isActive = th.dataset.sort === listSort.column;
+    th.classList.toggle("sorted", isActive);
+    th.dataset.sortArrow = isActive ? (listSort.ascending ? "▲" : "▼") : "";
+  });
+}
+
+function renderRows(reports, statusFilter, flagFilter) {
+  let filtered = statusFilter ? reports.filter((r) => r.status === statusFilter) : reports;
+  if (flagFilter) filtered = filtered.filter((r) => r.flags.includes(flagFilter));
+  filtered = sortReports(filtered, listSort.column, listSort.ascending);
+  updateSortIndicators();
+
   const reviewed = reports.filter((r) => r.status !== "unreviewed").length;
   document.getElementById("progress").textContent = `${reviewed}/${reports.length} reviewed`;
 
@@ -29,7 +81,7 @@ function renderRows(reports, statusFilter) {
     const tr = document.createElement("tr");
     const link = `/report.html?id=${encodeURIComponent(r.report_id)}`;
     tr.innerHTML = `
-      <td><a href="${link}">${r.report_id}</a></td>
+      <td><a href="${link}">${escapeHtml(r.report_id)}</a></td>
       <td>${escapeHtml(r.sponsor)}</td>
       <td>${escapeHtml(r.source_file)}</td>
       <td>${escapeHtml(r.flags.join(", "))}</td>

@@ -14,9 +14,19 @@
     <option value="confirmed_ok">Confirmed OK</option>
     <option value="edited">Edited</option>
   </select>
+  <select id="flag-filter">
+    <option value="">All flags</option>
+  </select>
   <table id="reports-table">
     <thead>
-      <tr><th>Report ID</th><th>Sponsor</th><th>Source File</th><th>Flags</th><th>Travelers</th><th>Status</th></tr>
+      <tr>
+        <th data-sort="report_id">Report ID</th>
+        <th data-sort="sponsor">Sponsor</th>
+        <th data-sort="source_file">Source File</th>
+        <th>Flags</th>
+        <th data-sort="traveler_count">Travelers</th>
+        <th data-sort="status">Status</th>
+      </tr>
     </thead>
     <tbody id="reports-body"></tbody>
   </table>

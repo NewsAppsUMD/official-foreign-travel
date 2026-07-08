@@ -2,6 +2,9 @@ body { font-family: sans-serif; margin: 1.5rem; }
 table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
 th, td { border: 1px solid #ccc; padding: 0.4rem 0.6rem; text-align: left; font-size: 0.9rem; }
 th { background: #f0f0f0; }
+th[data-sort] { cursor: pointer; user-select: none; }
+th[data-sort]:hover { background: #e4e4e4; }
+th[data-sort].sorted::after { content: " " attr(data-sort-arrow); }
 #progress { font-weight: bold; margin-bottom: 0.5rem; }
 
 #toolbar { margin-bottom: 1rem; display: flex; gap: 0.5rem; align-items: center; }
