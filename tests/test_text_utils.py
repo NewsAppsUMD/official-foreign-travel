@@ -16,7 +16,7 @@ class TestLowerName:
         """Test removal of special characters."""
         assert lower_name("O'Brien") == "o brien"
         assert lower_name("Mary-Jane") == "mary jane"
-        assert lower_name("(Hon.)") == " hon "
+        assert lower_name("(Hon.)") == "hon"
 
     def test_handles_accents(self):
         """Test handling of accented characters."""

@@ -9,7 +9,7 @@ from official_foreign_travel.models.travel import (
     TravelRecordInput,
     TravelRecordOutput,
 )
-from official_foreign_travel.models.member import Member, MemberInput
+from official_foreign_travel.models.member import MemberInput
 from official_foreign_travel.models.committee import Committee
 from official_foreign_travel.models.match import NameMatch, NameMatchResult
 
@@ -131,8 +131,8 @@ class TestMemberModels:
     """Tests for Member models."""
 
     def test_member_creation(self, sample_member_data):
-        """Test creating a member."""
-        member = Member(**sample_member_data)
+        """Test creating a member input (raw CSV shape: name + bioguide_id)."""
+        member = MemberInput(**sample_member_data)
         assert member.name == "John A. Doe"
         assert member.bioguide_id == "D000123"
 
