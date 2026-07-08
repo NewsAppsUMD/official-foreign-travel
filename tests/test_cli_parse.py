@@ -100,3 +100,46 @@ class TestApplyCorrections:
         assert corrected_report["sponsor"]["name"] == "Corrected Sponsor Name"
         assert corrected_report["sponsor"]["name"] != original_sponsor_name
         assert "MANUALLY_CORRECTED" in corrected_report["flags"]
+
+    def test_missing_corrections_file_returns_error_code(self, tmp_path, monkeypatch, capsys):
+        out = tmp_path / "out.json"
+        code = run_cli(
+            [
+                str(FIXTURES / "2019q1jan29.txt"),
+                str(out),
+                "--apply-corrections",
+                str(tmp_path / "does-not-exist.json"),
+            ],
+            monkeypatch,
+        )
+        assert code == 1
+        assert "corrections file not found" in capsys.readouterr().out
+
+    def test_invalid_corrections_json_returns_error_code(self, tmp_path, monkeypatch, capsys):
+        corrections_path = tmp_path / "corrections.json"
+        corrections_path.write_text("not valid json")
+        out = tmp_path / "out.json"
+        code = run_cli(
+            [str(FIXTURES / "2019q1jan29.txt"), str(out), "--apply-corrections", str(corrections_path)],
+            monkeypatch,
+        )
+        assert code == 1
+        assert "invalid JSON" in capsys.readouterr().out
+
+    def test_reports_how_many_corrections_matched(self, tmp_path, monkeypatch, capsys):
+        corrections_path = tmp_path / "corrections.json"
+        corrections_path.write_text(
+            json.dumps(
+                {
+                    "does-not-exist-000": {"status": "edited", "edits": {"sponsor.name": "X"}},
+                    "also-missing-001": {"status": "confirmed_ok", "edits": {}},
+                }
+            )
+        )
+        out = tmp_path / "out.json"
+        code = run_cli(
+            [str(FIXTURES / "2019q1jan29.txt"), str(out), "--apply-corrections", str(corrections_path)],
+            monkeypatch,
+        )
+        assert code == 0
+        assert "0 of 2 matched a parsed report" in capsys.readouterr().out

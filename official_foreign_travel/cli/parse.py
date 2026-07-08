@@ -2,6 +2,7 @@
 """CLI for parsing foreign travel reports."""
 
 import argparse
+import json
 import logging
 import sys
 from pathlib import Path
@@ -142,9 +143,20 @@ def main() -> int:
         )
 
     if args.apply_corrections:
+        if not args.apply_corrections.exists():
+            print(f"Error: corrections file not found: {args.apply_corrections}")
+            return 1
+
         from ..review.corrections import apply_corrections, load_corrections
 
-        corrections = load_corrections(args.apply_corrections)
+        try:
+            corrections = load_corrections(args.apply_corrections)
+        except json.JSONDecodeError as e:
+            print(f"Error: invalid JSON in {args.apply_corrections}: {e}")
+            return 1
+
+        matched = sum(1 for r in reports if r.report_id in corrections)
+        print(f"Applying corrections: {matched} of {len(corrections)} matched a parsed report")
         reports = apply_corrections(reports, corrections)
 
     if output_format == "json":
