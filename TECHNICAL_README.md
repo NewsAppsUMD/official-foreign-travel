@@ -106,7 +106,47 @@ oft-parse report_text/ output.json --llm-fallback --fail-report unresolved.json
 # Or target a different model -- any `llm`-registered id works, e.g. an Ollama model
 export OLLAMA_HOST=https://ollama.com OLLAMA_API_KEY=...
 oft-parse report_text/ output.json --llm-fallback --llm-model llama3.1:70b-cloud
+
+# Merge in human corrections from a prior review session (see "Reviewing Flagged
+# Reports" below) before writing output
+oft-parse report_text/ output.json --apply-corrections corrections.json
 ```
+
+### Reviewing Flagged Reports
+
+Any table the pipeline couldn't fully resolve keeps a `flags` entry rather than being
+dropped or guessed at -- `oft-review` is a local, zero-dependency web UI for working
+through that flagged subset by hand, side by side with the original source text.
+
+```bash
+oft-parse report_text/ output.json
+oft-review report_text/ output.json --corrections corrections.json
+```
+
+Then open http://127.0.0.1:8765/ in a browser. The list view shows every flagged
+report with its flags, traveler count, and review status; clicking one opens a
+side-by-side view -- the original fixed-width table text on the left, an editable form
+of the extracted fields on the right. Clicking a segment's heading highlights the source
+lines it was parsed from. **Save** records any edits; **Confirm OK** marks a report
+reviewed with no changes needed. Both write to the `--corrections` file (default
+`corrections.json`), never to `output.json` itself, so a review session is never lost to
+a re-parse.
+
+To fold those corrections into a fresh parse of the whole corpus:
+
+```bash
+oft-parse report_text/ output.json --apply-corrections corrections.json
+```
+
+Corrected reports are tagged `MANUALLY_CORRECTED` (edited) or `HUMAN_CONFIRMED`
+(confirmed with no changes) and re-validated against the same arithmetic checks as
+everything else. Because corrections live in their own file keyed by `report_id`, this
+works no matter how many times the corpus gets re-parsed from scratch -- a correction is
+never tied to one specific run's output.
+
+`--port`/`--host` control where the server binds (default `127.0.0.1:8765`; it only ever
+binds to localhost). `oft-review` binds only to `127.0.0.1` and has no authentication --
+it's meant for one local reviewer, not to be exposed on a network.
 
 ### Test Name Matching
 
@@ -295,10 +335,11 @@ Ensure `members.csv` and `committees.csv` are in the project root or specify pat
 ### A table has a `LAYOUT_LOW_CONFIDENCE` or `LAYOUT_UNDETECTED` flag
 
 The table's column-header block didn't match cleanly (garbled OCR, a genuinely unusual
-layout). Either accept the gap, or run with `--llm-fallback` (optionally `--llm-model` to
+layout). Either accept the gap, run with `--llm-fallback` (optionally `--llm-model` to
 pick a different model) to route just those tables to a model for a second attempt (still
-re-validated against the same arithmetic checks before being accepted). Larger tables can
-take a few minutes per table -- this is normal generation time, not a hang.
+re-validated against the same arithmetic checks before being accepted), or review it by
+hand with `oft-review` (see "Reviewing Flagged Reports" above). Larger tables can take a
+few minutes per table with `--llm-fallback` -- this is normal generation time, not a hang.
 
 ## License
 
