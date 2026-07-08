@@ -2,6 +2,7 @@
 
 import json
 import re
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -11,6 +12,8 @@ from ..parsing.validate import validate_report
 from ..utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+_SAVE_LOCK = threading.Lock()
 
 _TOKEN_RE = re.compile(r"^([^.\[\]]+)(\[(\d+)\])?$")
 
@@ -68,16 +71,21 @@ def save_report_correction(
 
     Returns:
         The entry that was just saved.
+
+    The load-modify-write sequence is serialized by a module-level lock, so
+    concurrent saves (e.g. two browser tabs) can't race and drop each other's
+    entry -- the server handles each connection on its own thread.
     """
-    corrections = load_corrections(path)
-    entry = {
-        "status": status,
-        "reviewed_at": datetime.now(timezone.utc).isoformat(),
-        "edits": edits,
-    }
-    corrections[report_id] = entry
-    path.write_text(json.dumps(corrections, indent=2), encoding="utf-8")
-    return entry
+    with _SAVE_LOCK:
+        corrections = load_corrections(path)
+        entry = {
+            "status": status,
+            "reviewed_at": datetime.now(timezone.utc).isoformat(),
+            "edits": edits,
+        }
+        corrections[report_id] = entry
+        path.write_text(json.dumps(corrections, indent=2), encoding="utf-8")
+        return entry
 
 
 def apply_corrections(reports: List[Report], corrections: Dict[str, dict]) -> List[Report]:

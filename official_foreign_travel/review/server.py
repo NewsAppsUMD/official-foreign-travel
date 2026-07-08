@@ -26,24 +26,32 @@ def make_handler(
 
         def do_GET(self) -> None:
             path = urlparse(self.path).path
-            if path == "/":
-                self._serve_static("index.html")
-            elif path in ("/report.html", "/app.css", "/app.js"):
-                self._serve_static(path.lstrip("/"))
-            elif path == "/api/reports":
-                self._send_json(self._list_reports())
-            elif path.startswith("/api/reports/"):
-                self._send_report_detail(path[len("/api/reports/") :])
-            else:
-                self.send_error(404)
+            try:
+                if path == "/":
+                    self._serve_static("index.html")
+                elif path in ("/report.html", "/app.css", "/app.js"):
+                    self._serve_static(path.lstrip("/"))
+                elif path == "/api/reports":
+                    self._send_json(self._list_reports())
+                elif path.startswith("/api/reports/"):
+                    self._send_report_detail(path[len("/api/reports/") :])
+                else:
+                    self.send_error(404)
+            except json.JSONDecodeError as e:
+                # Surfaces a corrupted corrections.json as a request-scoped 500
+                # instead of an uncaught exception that drops the connection.
+                self.send_error(500, f"Corrections file is corrupted: {e}")
 
         def do_POST(self) -> None:
             path = urlparse(self.path).path
-            if path.startswith("/api/reports/") and path.endswith("/corrections"):
-                report_id = path[len("/api/reports/") : -len("/corrections")]
-                self._save_corrections(report_id)
-            else:
-                self.send_error(404)
+            try:
+                if path.startswith("/api/reports/") and path.endswith("/corrections"):
+                    report_id = path[len("/api/reports/") : -len("/corrections")]
+                    self._save_corrections(report_id)
+                else:
+                    self.send_error(404)
+            except json.JSONDecodeError as e:
+                self.send_error(500, f"Invalid JSON: {e}")
 
         def _serve_static(self, name: str) -> None:
             file_path = STATIC_DIR / name

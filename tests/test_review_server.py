@@ -105,3 +105,25 @@ class TestStaticFiles:
         server, _ = running_server
         status, _ = _get(server, "/nonexistent")
         assert status == 404
+
+
+class TestMalformedInput:
+    def test_corrupted_corrections_file_returns_500_not_dropped_connection(self, running_server):
+        server, corrections_path = running_server
+        corrections_path.write_text("not valid json")
+        status, _ = _get(server, "/api/reports")
+        assert status == 500
+
+    def test_malformed_post_body_returns_500_not_dropped_connection(self, running_server):
+        server, _ = running_server
+        conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1])
+        conn.request(
+            "POST",
+            "/api/reports/r-1/corrections",
+            body=b"not valid json",
+            headers={"Content-Type": "application/json"},
+        )
+        response = conn.getresponse()
+        response.read()
+        conn.close()
+        assert response.status == 500

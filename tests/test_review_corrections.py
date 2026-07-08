@@ -90,6 +90,25 @@ class TestSaveReportCorrection:
         data = load_corrections(path)
         assert set(data.keys()) == {"r-1", "r-2"}
 
+    def test_concurrent_saves_do_not_drop_each_others_entries(self, tmp_path):
+        import threading
+
+        path = tmp_path / "corrections.json"
+        barrier = threading.Barrier(2)
+
+        def save(report_id):
+            barrier.wait()
+            save_report_correction(path, report_id, "edited", {"a": report_id})
+
+        threads = [threading.Thread(target=save, args=(rid,)) for rid in ("r-1", "r-2")]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        data = load_corrections(path)
+        assert set(data.keys()) == {"r-1", "r-2"}
+
 
 from datetime import date
 from decimal import Decimal
