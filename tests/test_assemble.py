@@ -1,0 +1,70 @@
+"""Tests for the end-to-end table assembly pipeline."""
+
+from pathlib import Path
+
+from official_foreign_travel.parsing.assemble import assemble_file, load_name_index
+from official_foreign_travel.parsing.validate import validate_reports
+
+FIXTURES = Path(__file__).parent / "fixtures"
+MEMBERS_CSV = Path(__file__).parent.parent / "members.csv"
+COMMITTEES_CSV = Path(__file__).parent.parent / "committees.csv"
+
+
+class TestAssembleFile:
+    def test_produces_one_report_per_table(self):
+        reports = assemble_file(FIXTURES / "2019q1jan29.txt")
+        assert len(reports) == 4
+
+    def test_report_ids_are_unique_and_stable(self):
+        reports = assemble_file(FIXTURES / "2018q4nov16.txt")
+        ids = [r.report_id for r in reports]
+        assert len(ids) == len(set(ids))
+        assert ids[0] == "2018q4nov16-000"
+
+    def test_amended_flag_propagates(self):
+        reports = assemble_file(FIXTURES / "1996q1jan30.txt")
+        amended = [r for r in reports if r.amended]
+        assert len(amended) == 1
+
+    def test_committee_code_looked_up(self):
+        committee_index = load_name_index(COMMITTEES_CSV)
+        reports = assemble_file(FIXTURES / "2018q4nov16.txt", committee_index=committee_index)
+        armed_services = next(r for r in reports if "ARMED SERVICES" in r.sponsor.name.upper())
+        assert armed_services.sponsor.code == "HSAS"
+
+    def test_exact_member_match(self):
+        member_index = load_name_index(MEMBERS_CSV)
+        reports = assemble_file(FIXTURES / "2019q1jan29.txt", member_index=member_index)
+        matched = [
+            t for r in reports for t in r.travelers if t.bioguide_id is not None
+        ]
+        # At least the "Hon." members should exact-match the members.csv roster.
+        assert len(matched) > 0
+        assert all(t.match_confidence == 1.0 for t in matched)
+
+    def test_unmatched_member_flagged_not_guessed(self):
+        reports = assemble_file(FIXTURES / "2018q4nov16.txt")  # no member_index passed
+        unmatched = [t for r in reports for t in r.travelers if t.bioguide_id is None]
+        assert len(unmatched) > 0
+
+    def test_never_drops_a_table_even_with_low_confidence_layout(self):
+        """Every segmented table produces a Report, regardless of parse quality."""
+        from official_foreign_travel.parsing.segmenter import segment_tables
+
+        text = (FIXTURES / "2007q4nov13.txt").read_text(errors="replace")
+        expected_count = len(segment_tables(text, "2007q4nov13.txt"))
+        reports = assemble_file(FIXTURES / "2007q4nov13.txt")
+        assert len(reports) == expected_count
+
+    def test_costs_are_decimal_and_json_serializable(self):
+        reports = assemble_file(FIXTURES / "2018q4nov16.txt")
+        armed_services = next(r for r in reports if "ARMED SERVICES" in r.sponsor.name.upper())
+        payload = armed_services.model_dump(mode="json")
+        assert isinstance(payload["travelers"][0]["segments"][0]["costs"]["total"]["us_dollar"], dict)
+
+
+class TestValidateIntegration:
+    def test_validated_reports_have_no_unexpected_crashes(self):
+        reports = assemble_file(FIXTURES / "2019q1jan29.txt")
+        validate_reports(reports)
+        assert all(isinstance(r.flags, list) for r in reports)

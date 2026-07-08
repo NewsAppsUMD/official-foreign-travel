@@ -11,11 +11,9 @@ from ..utils.logging import setup_logger
 from ..utils.config import Config, get_config
 
 
-def main():
+def main() -> int:
     """Main entry point for name matching test CLI."""
-    parser = argparse.ArgumentParser(
-        description="Test name matching on travel reports"
-    )
+    parser = argparse.ArgumentParser(description="Test name matching on travel reports")
     parser.add_argument(
         "input",
         type=Path,
@@ -115,42 +113,51 @@ def main():
             print(f"[{i}/{total_files}] {file_path.name}")
 
             try:
-                for record in report_parser.parse_file(file_path, include_metadata=False):
-                    count += 1
+                for report in report_parser.parse_file(file_path):
+                    for traveler in report.travelers:
+                        name = traveler.name
 
-                    # Only test records with honorifics
-                    if not record.honorific or not (
-                        record.name.startswith("Hon") or record.name.startswith("Speaker")
-                    ):
-                        continue
+                        # Only test records with honorifics
+                        if not traveler.honorific or not (
+                            name.startswith("Hon") or name.startswith("Speaker")
+                        ):
+                            continue
 
-                    try:
-                        result = matcher.search_by_name(
-                            record.name, record.arrival_date, record.departure_date
-                        )
+                        for segment in traveler.segments:
+                            count += 1
+                            if segment.arrival_date is None or segment.departure_date is None:
+                                continue
+                            arrival_date = segment.arrival_date.strftime("%m/%d/%Y")
+                            departure_date = segment.departure_date.strftime("%m/%d/%Y")
 
-                        if not result.is_confident:
-                            if not result.matches or result.matches[0].score < config.min_match_score:
-                                missing_count += 1
+                            try:
+                                result = matcher.search_by_name(name, arrival_date, departure_date)
+
+                                if not result.is_confident:
+                                    if (
+                                        not result.matches
+                                        or result.matches[0].score < config.min_match_score
+                                    ):
+                                        missing_count += 1
+                                        log_file.write(
+                                            f"Missing {file_path.name}: {name}, "
+                                            f"{arrival_date}, {departure_date} - "
+                                            f"{result.matches[:3] if result.matches else 'no matches'}\n"
+                                        )
+                                    elif result.is_inconclusive:
+                                        inconclusive_count += 1
+                                        log_file.write(
+                                            f"Inconcl. {file_path.name}: {name}, "
+                                            f"{arrival_date}, {departure_date} - "
+                                            f"{result.matches[:3]}\n"
+                                        )
+
+                            except Exception as e:
+                                error_count += 1
                                 log_file.write(
-                                    f"Missing {file_path.name}: {record.name}, "
-                                    f"{record.arrival_date}, {record.departure_date} - "
-                                    f"{result.matches[:3] if result.matches else 'no matches'}\n"
+                                    f"ERROR {file_path.name}: {name}, "
+                                    f"{arrival_date}, {departure_date} - {e}\n"
                                 )
-                            elif result.is_inconclusive:
-                                inconclusive_count += 1
-                                log_file.write(
-                                    f"Inconcl. {file_path.name}: {record.name}, "
-                                    f"{record.arrival_date}, {record.departure_date} - "
-                                    f"{result.matches[:3]}\n"
-                                )
-
-                    except Exception as e:
-                        error_count += 1
-                        log_file.write(
-                            f"ERROR {file_path.name}: {record.name}, "
-                            f"{record.arrival_date}, {record.departure_date} - {e}\n"
-                        )
 
             except Exception as e:
                 print(f"  Error processing file: {e}")

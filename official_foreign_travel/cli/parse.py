@@ -3,18 +3,25 @@
 
 import argparse
 import logging
+import sys
 from pathlib import Path
 
 from ..scrapers.report_parser import ReportParser
+from ..utils.config import get_config
 from ..utils.logging import setup_logger
-from ..utils.config import Config, get_config
+
+FORMAT_BY_EXTENSION = {".json": "json", ".csv": "csv", ".jsonl": "jsonl"}
 
 
-def main():
+def _infer_format(output: Path, explicit: str) -> str:
+    if explicit != "auto":
+        return explicit
+    return FORMAT_BY_EXTENSION.get(output.suffix.lower(), "json")
+
+
+def main() -> int:
     """Main entry point for parse CLI."""
-    parser = argparse.ArgumentParser(
-        description="Parse foreign travel reports from text files"
-    )
+    parser = argparse.ArgumentParser(description="Parse foreign travel reports from text files")
     parser.add_argument(
         "input",
         type=Path,
@@ -23,7 +30,13 @@ def main():
     parser.add_argument(
         "output",
         type=Path,
-        help="Output CSV file",
+        help="Output file (format inferred from extension unless --format is given)",
+    )
+    parser.add_argument(
+        "--format",
+        choices=["auto", "json", "csv", "jsonl"],
+        default="auto",
+        help="Output format (default: inferred from output file extension, else json)",
     )
     parser.add_argument(
         "--members-csv",
@@ -36,14 +49,34 @@ def main():
         help="Committees CSV file (default: committees.csv)",
     )
     parser.add_argument(
-        "--no-validate",
+        "--include-superseded",
         action="store_true",
-        help="Skip validation of records",
+        help="Include amended-report duplicates that were superseded by a later publication",
     )
     parser.add_argument(
-        "--no-metadata",
+        "--fuzzy-name-matching",
         action="store_true",
-        help="Skip table header and committee metadata",
+        help="Fall back to fuzzy name matching (via legislator YAML data) when a traveler "
+        "name doesn't exactly match members.csv",
+    )
+    parser.add_argument(
+        "--llm-fallback",
+        action="store_true",
+        help="Route tables that fail deterministic parsing/validation to an LLM via Simon "
+        "Willison's `llm` library (requires the 'llm' extra plus whichever plugin/credentials "
+        "--llm-model needs; off by default)",
+    )
+    parser.add_argument(
+        "--llm-model",
+        default=None,
+        help="`llm`-registered model id for --llm-fallback, e.g. 'claude-opus-4.8' (default; "
+        "needs ANTHROPIC_API_KEY) or an Ollama model id such as 'llama3.1:70b' (needs "
+        "OLLAMA_HOST, and OLLAMA_API_KEY for Ollama's cloud models)",
+    )
+    parser.add_argument(
+        "--fail-report",
+        type=Path,
+        help="Write tables that still fail after --llm-fallback to this JSON file for review",
     )
     parser.add_argument(
         "--log-level",
@@ -59,56 +92,76 @@ def main():
 
     args = parser.parse_args()
 
-    # Validate input
     if not args.input.exists():
         print(f"Error: Input path does not exist: {args.input}")
         return 1
 
-    # Setup logging
     log_level = getattr(logging, args.log_level)
     setup_logger("official_foreign_travel", level=log_level, log_file=args.log_file)
 
-    # Get or create config
     config = get_config()
-
-    # Override config with CLI args
     if args.members_csv:
         config.members_csv = args.members_csv
     if args.committees_csv:
         config.committees_csv = args.committees_csv
 
-    # Create parser
-    report_parser = ReportParser(config)
+    name_matcher = None
+    if args.fuzzy_name_matching:
+        from ..matchers.name_matcher import NameMatcher
+
+        name_matcher = NameMatcher(config)
+        name_matcher.initialize()
+
+    report_parser = ReportParser(config, name_matcher=name_matcher)
+
+    output_format = _infer_format(args.output, args.format)
 
     print(f"Input: {args.input}")
-    print(f"Output: {args.output}")
-    print(f"Validation: {'disabled' if args.no_validate else 'enabled'}")
+    print(f"Output: {args.output} ({output_format})")
 
-    # Parse input
-    if args.input.is_file():
-        print(f"Parsing single file...")
-        records = report_parser.parse_file(
-            args.input, include_metadata=not args.no_metadata
+    reports = report_parser.parse_and_finalize(args.input)
+
+    if args.llm_fallback:
+        from ..parsing.llm_fallback import DEFAULT_MODEL, LLMTableRepairer, apply_llm_fallback
+
+        model_id = args.llm_model or DEFAULT_MODEL
+        print(f"LLM fallback model: {model_id}")
+        report_text_dir = args.input if args.input.is_dir() else args.input.parent
+        reports = apply_llm_fallback(
+            reports,
+            LLMTableRepairer(model_id=model_id),
+            report_text_dir=report_text_dir,
+            fail_report_path=args.fail_report,
+            member_index=report_parser.member_index,
+            name_matcher=name_matcher,
+        )
+
+    if output_format == "json":
+        report_parser.write_json(reports, args.output, include_superseded=args.include_superseded)
+        from ..parsing.serialize import visible_reports
+
+        stats = {"reports": len(visible_reports(reports, args.include_superseded))}
+    elif output_format == "csv":
+        stats = report_parser.write_csv(
+            reports, args.output, include_superseded=args.include_superseded
         )
     else:
-        print(f"Parsing directory...")
-        records = report_parser.parse_directory(
-            args.input, include_metadata=not args.no_metadata
+        stats = report_parser.write_jsonl(
+            reports, args.output, include_superseded=args.include_superseded
         )
 
-    # Write output
-    stats = report_parser.write_csv(
-        records, args.output, validate=not args.no_validate
-    )
+    n_superseded = sum(1 for r in reports if r.superseded_by is not None)
+    n_flagged = sum(1 for r in reports if r.flags)
 
     print("\nParsing complete!")
-    print(f"  Total records: {stats['total']}")
-    print(f"  Valid records: {stats['valid']}")
-    if stats['invalid'] > 0:
-        print(f"  Invalid records: {stats['invalid']}")
+    print(f"  Total reports: {len(reports)}")
+    print(f"  Superseded (amended) reports: {n_superseded}")
+    print(f"  Reports with flags: {n_flagged}")
+    for key, value in stats.items():
+        print(f"  {key}: {value}")
 
     return 0
 
 
 if __name__ == "__main__":
-    exit(main())
+    sys.exit(main())
