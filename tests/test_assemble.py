@@ -35,9 +35,7 @@ class TestAssembleFile:
     def test_exact_member_match(self):
         member_index = load_name_index(MEMBERS_CSV)
         reports = assemble_file(FIXTURES / "2019q1jan29.txt", member_index=member_index)
-        matched = [
-            t for r in reports for t in r.travelers if t.bioguide_id is not None
-        ]
+        matched = [t for r in reports for t in r.travelers if t.bioguide_id is not None]
         # At least the "Hon." members should exact-match the members.csv roster.
         assert len(matched) > 0
         assert all(t.match_confidence == 1.0 for t in matched)
@@ -60,7 +58,9 @@ class TestAssembleFile:
         reports = assemble_file(FIXTURES / "2018q4nov16.txt")
         armed_services = next(r for r in reports if "ARMED SERVICES" in r.sponsor.name.upper())
         payload = armed_services.model_dump(mode="json")
-        assert isinstance(payload["travelers"][0]["segments"][0]["costs"]["total"]["us_dollar"], dict)
+        assert isinstance(
+            payload["travelers"][0]["segments"][0]["costs"]["total"]["us_dollar"], dict
+        )
 
 
 class TestValidateIntegration:

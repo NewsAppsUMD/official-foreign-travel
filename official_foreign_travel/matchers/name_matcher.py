@@ -167,9 +167,7 @@ class NameMatcher:
     def _append_data(self, members_list: List[Dict]) -> None:
         """Build time-indexed member database."""
         for member in members_list:
-            firstname, middlename, lastname, suffix, nickname = self._get_names(
-                member["name"]
-            )
+            firstname, middlename, lastname, suffix, nickname = self._get_names(member["name"])
 
             # Normalize all name components
             first_lower = lower_name(firstname)
@@ -234,9 +232,7 @@ class NameMatcher:
             for i in range(1, len_s1):
                 if s1[i] == s2[j]:
                     scores[i][j] = scores[i - 1][j - 1] + 1
-                scores[i][j] = max(
-                    scores[i - 1][j], scores[i][j - 1], scores[i][j]
-                )
+                scores[i][j] = max(scores[i - 1][j], scores[i][j - 1], scores[i][j])
 
         return (1.0 + scores[-1][-1]) / max(len_s1, len_s2)
 
@@ -330,9 +326,7 @@ class NameMatcher:
 
         return best_score
 
-    def search_by_name(
-        self, name: str, arrival_date: str, departure_date: str
-    ) -> NameMatchResult:
+    def search_by_name(self, name: str, arrival_date: str, departure_date: str) -> NameMatchResult:
         """
         Search for legislators by name during a date range.
 
@@ -416,9 +410,7 @@ class NameMatcher:
         )
 
         # Validate match quality
-        result.validate_match(
-            self.config.min_match_score, self.config.ambiguity_threshold
-        )
+        result.validate_match(self.config.min_match_score, self.config.ambiguity_threshold)
 
         return result
 

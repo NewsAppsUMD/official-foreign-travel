@@ -9,7 +9,12 @@ from datetime import date
 from official_foreign_travel.models.report import Period, Report, Sponsor
 from official_foreign_travel.parsing.assemble import assemble_file, load_name_index
 from official_foreign_travel.parsing.dedup import dedup_reports
-from official_foreign_travel.parsing.serialize import to_json_dict, write_csv, write_jsonl, write_json
+from official_foreign_travel.parsing.serialize import (
+    to_json_dict,
+    write_csv,
+    write_jsonl,
+    write_json,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 MEMBERS_CSV = Path(__file__).parent.parent / "members.csv"
@@ -39,12 +44,22 @@ class TestToJsonDict:
         period = Period(start=date(1993, 10, 1), end=date(1993, 12, 31), year=1993, quarter=4)
         sponsor = Sponsor(type="committee", name="COMMITTEE ON ARMED SERVICES", raw="")
         original = Report(
-            report_id="orig-000", source_file="1994q1feb10.txt", table_index=0,
-            sponsor=sponsor, period=period, header_raw="", amended=False,
+            report_id="orig-000",
+            source_file="1994q1feb10.txt",
+            table_index=0,
+            sponsor=sponsor,
+            period=period,
+            header_raw="",
+            amended=False,
         )
         amendment = Report(
-            report_id="amend-000", source_file="1994q2may17.txt", table_index=0,
-            sponsor=sponsor, period=period, header_raw="", amended=True,
+            report_id="amend-000",
+            source_file="1994q2may17.txt",
+            table_index=0,
+            sponsor=sponsor,
+            period=period,
+            header_raw="",
+            amended=True,
         )
         reports = [original, amendment]
         dedup_reports(reports)
@@ -59,12 +74,22 @@ class TestToJsonDict:
         sponsor = Sponsor(type="committee", name="COMMITTEE ON ARMED SERVICES", raw="")
         reports = [
             Report(
-                report_id="orig-000", source_file="1994q1feb10.txt", table_index=0,
-                sponsor=sponsor, period=period, header_raw="", amended=False,
+                report_id="orig-000",
+                source_file="1994q1feb10.txt",
+                table_index=0,
+                sponsor=sponsor,
+                period=period,
+                header_raw="",
+                amended=False,
             ),
             Report(
-                report_id="amend-000", source_file="1994q2may17.txt", table_index=0,
-                sponsor=sponsor, period=period, header_raw="", amended=True,
+                report_id="amend-000",
+                source_file="1994q2may17.txt",
+                table_index=0,
+                sponsor=sponsor,
+                period=period,
+                header_raw="",
+                amended=True,
             ),
         ]
         dedup_reports(reports)

@@ -48,7 +48,9 @@ class ReportDownloader:
                 url = re.sub(r"ddlQuartField=q[0-9]", f"ddlQuartField=q{quarter}", url)
                 urls.append({"year": year, "quarter": quarter, "url": url})
 
-        logger.info(f"Generated {len(urls)} quarterly URLs ({self.config.start_year}-{self.config.end_year})")
+        logger.info(
+            f"Generated {len(urls)} quarterly URLs ({self.config.start_year}-{self.config.end_year})"
+        )
         return urls
 
     def get_report_urls(self, quarterly_urls: List[Dict]) -> List[Dict]:
@@ -81,9 +83,7 @@ class ReportDownloader:
                 links = soup.find_all("a", href=True)
 
                 reports = [link["href"] for link in links if pattern.match(link["href"])]
-                entries = [
-                    {"year": year, "quarter": q, "report_url": r} for r in reports
-                ]
+                entries = [{"year": year, "quarter": q, "report_url": r} for r in reports]
 
                 report_urls.extend(entries)
                 logger.info(f"Found {len(reports)} reports for {year} Q{q}")
@@ -188,7 +188,7 @@ class ReportDownloader:
 
             except requests.exceptions.RequestException as e:
                 if attempt < self.config.retry_attempts - 1:
-                    delay = self.config.retry_delay * (2 ** attempt)
+                    delay = self.config.retry_delay * (2**attempt)
                     logger.warning(
                         f"Request failed (attempt {attempt + 1}/{self.config.retry_attempts}): {e}"
                     )

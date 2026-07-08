@@ -28,7 +28,7 @@ class TravelRecord(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     name: str = Field(..., min_length=1, description="Representative's name")
-    member_id: Optional[str] = Field(None, pattern=r'^[A-Z][0-9]{6}$', description="Bioguide ID")
+    member_id: Optional[str] = Field(None, pattern=r"^[A-Z][0-9]{6}$", description="Bioguide ID")
     honorific: Optional[str] = Field(None, description="Title")
     arrival_date: datetime = Field(..., description="Arrival date")
     departure_date: datetime = Field(..., description="Departure date")
@@ -39,12 +39,12 @@ class TravelRecord(BaseModel):
     source_file: Optional[str] = Field(None, description="Source filename")
     year: int = Field(..., description="Year of travel")
 
-    @field_validator('departure_date')
+    @field_validator("departure_date")
     @classmethod
     def validate_dates(cls, v: datetime, info) -> datetime:
         """Ensure departure is after arrival."""
-        if 'arrival_date' in info.data:
-            arrival = info.data['arrival_date']
+        if "arrival_date" in info.data:
+            arrival = info.data["arrival_date"]
             if isinstance(arrival, datetime) and v < arrival:
                 raise ValueError("Departure date must be after arrival date")
         return v

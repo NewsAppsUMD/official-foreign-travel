@@ -38,7 +38,9 @@ def validate_report(report: Report, tolerance: Decimal = DEFAULT_TOLERANCE) -> R
     for segment in all_segments:
         if "ROW_SUM_MISMATCH" in segment.flags:
             segment.flags.remove("ROW_SUM_MISMATCH")
-    report.flags = [f for f in report.flags if f not in ("TABLE_SUM_MISMATCH", "MISSING_COMMITTEE_TOTAL")]
+    report.flags = [
+        f for f in report.flags if f not in ("TABLE_SUM_MISMATCH", "MISSING_COMMITTEE_TOTAL")
+    ]
 
     for segment in all_segments:
         declared_total = segment.costs.total.us_dollar.amount

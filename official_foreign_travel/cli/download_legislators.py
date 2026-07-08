@@ -50,9 +50,7 @@ def download_file(url: str, destination: Path, timeout: int = 30) -> bool:
 
 def main():
     """Main CLI function."""
-    parser = argparse.ArgumentParser(
-        description="Download legislator YAML files from GitHub"
-    )
+    parser = argparse.ArgumentParser(description="Download legislator YAML files from GitHub")
     parser.add_argument(
         "--output-dir",
         type=Path,

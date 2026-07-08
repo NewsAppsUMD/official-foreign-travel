@@ -67,7 +67,9 @@ class TestClassifySponsor:
         assert classify_sponsor("HOUSE DELEGATION TO ARGENTINA")[0] == "delegation"
 
     def test_commission(self):
-        assert classify_sponsor("COMMISSION ON SECURITY AND COOPERATION IN EUROPE")[0] == "commission"
+        assert (
+            classify_sponsor("COMMISSION ON SECURITY AND COOPERATION IN EUROPE")[0] == "commission"
+        )
 
     def test_interparliamentary_group(self):
         assert classify_sponsor("NORTH ATLANTIC ASSEMBLY")[0] == "interparliamentary"

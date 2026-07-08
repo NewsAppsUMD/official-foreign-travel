@@ -73,17 +73,10 @@ class TestExtractRows:
     def test_commercial_airfare_supplement_merged_into_cost_not_dropped(self):
         block = find_block("1996q1jan30.txt", "NATIONAL SECURITY")
         travelers, total, flags = rows_for(block)
-        assert any(
-            "COST_SUPPLEMENT_MERGED" in seg.flags
-            for t in travelers
-            for seg in t.segments
-        )
+        assert any("COST_SUPPLEMENT_MERGED" in seg.flags for t in travelers for seg in t.segments)
         # the supplemental transportation cost is not silently dropped
         merged_segment = next(
-            seg
-            for t in travelers
-            for seg in t.segments
-            if "COST_SUPPLEMENT_MERGED" in seg.flags
+            seg for t in travelers for seg in t.segments if "COST_SUPPLEMENT_MERGED" in seg.flags
         )
         assert merged_segment.costs.transportation.us_dollar.amount > Decimal("0")
 
@@ -93,9 +86,7 @@ class TestExtractRows:
         block = next(b for b in blocks if "JUDICIARY" in b.title_raw.upper())
         travelers, total, flags = rows_for(block)
         assert any(
-            seg.costs.transportation.us_dollar.military_air
-            for t in travelers
-            for seg in t.segments
+            seg.costs.transportation.us_dollar.military_air for t in travelers for seg in t.segments
         )
 
     def test_military_air_label_row_detected(self):
@@ -109,7 +100,8 @@ class TestExtractRows:
         )
         travelers, total, flags = rows_for(block)
         assert any(
-            "MILITARY_AIR_LABEL_ROW" in seg.flags and seg.costs.transportation.us_dollar.military_air
+            "MILITARY_AIR_LABEL_ROW" in seg.flags
+            and seg.costs.transportation.us_dollar.military_air
             for t in travelers
             for seg in t.segments
         )
@@ -138,6 +130,7 @@ class TestExtractRows:
                     list(enumerate(block.lines, start=1)), layout, footnote_map
                 )
                 total_segments += sum(len(t.segments) for t in travelers)
-            assert total_segments >= len(
-                [l for b in blocks for l in b.lines if CANDIDATE_RE.search(l[:80])]
-            ) - 5  # small slack for genuinely-unparseable rows within low-confidence tables
+            assert (
+                total_segments
+                >= len([l for b in blocks for l in b.lines if CANDIDATE_RE.search(l[:80])]) - 5
+            )  # small slack for genuinely-unparseable rows within low-confidence tables

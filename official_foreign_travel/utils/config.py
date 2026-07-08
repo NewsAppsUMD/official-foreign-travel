@@ -25,9 +25,7 @@ class Config(BaseSettings):
 
     # CSV files
     members_csv: Path = Field(default=Path("members.csv"), description="Members CSV file")
-    committees_csv: Path = Field(
-        default=Path("committees.csv"), description="Committees CSV file"
-    )
+    committees_csv: Path = Field(default=Path("committees.csv"), description="Committees CSV file")
 
     # YAML files (from congress-legislators repo)
     legislators_current_yaml: Path = Field(
@@ -51,15 +49,9 @@ class Config(BaseSettings):
     retry_delay: float = Field(default=2.0, description="Delay between retries in seconds")
 
     # Name matching settings
-    min_match_score: float = Field(
-        default=3.0, description="Minimum score for confident match"
-    )
-    ambiguity_threshold: float = Field(
-        default=1.1, description="Threshold for ambiguous matches"
-    )
-    match_return_count: int = Field(
-        default=5, description="Number of matches to return"
-    )
+    min_match_score: float = Field(default=3.0, description="Minimum score for confident match")
+    ambiguity_threshold: float = Field(default=1.1, description="Threshold for ambiguous matches")
+    match_return_count: int = Field(default=5, description="Number of matches to return")
 
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")

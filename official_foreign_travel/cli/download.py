@@ -20,12 +20,8 @@ def main() -> None:
         type=Path,
         help="Directory to save reports (default: report_text/)",
     )
-    parser.add_argument(
-        "--start-year", type=int, help="Start year (default: 1994)"
-    )
-    parser.add_argument(
-        "--end-year", type=int, help="End year (default: 2020)"
-    )
+    parser.add_argument("--start-year", type=int, help="Start year (default: 1994)")
+    parser.add_argument("--end-year", type=int, help="End year (default: 2020)")
     parser.add_argument(
         "--save-urls",
         type=Path,
