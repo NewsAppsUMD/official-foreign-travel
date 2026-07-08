@@ -127,3 +127,62 @@ class TestMalformedInput:
         response.read()
         conn.close()
         assert response.status == 500
+
+
+class TestDetailEndpoint:
+    def test_returns_report_raw_lines_and_default_correction(self, running_server):
+        server, _ = running_server
+        status, body = _get(server, "/api/reports/r-1")
+        assert status == 200
+        data = json.loads(body)
+        assert data["report"]["report_id"] == "r-1"
+        assert isinstance(data["raw_lines"], list)
+        assert data["correction"] == {"status": "unreviewed", "edits": {}}
+
+    def test_unknown_report_id_is_404(self, running_server):
+        server, _ = running_server
+        status, _ = _get(server, "/api/reports/does-not-exist")
+        assert status == 404
+
+
+def _post(server, path, payload):
+    conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1])
+    body = json.dumps(payload).encode("utf-8")
+    conn.request("POST", path, body=body, headers={"Content-Type": "application/json"})
+    response = conn.getresponse()
+    result = response.read()
+    conn.close()
+    return response.status, result
+
+
+class TestSaveCorrectionsEndpoint:
+    def test_save_then_list_reflects_status(self, running_server):
+        server, _ = running_server
+        status, body = _post(
+            server, "/api/reports/r-1/corrections",
+            {"status": "edited", "edits": {"sponsor.name": "Fixed"}},
+        )
+        assert status == 200
+        entry = json.loads(body)
+        assert entry["status"] == "edited"
+        assert entry["edits"] == {"sponsor.name": "Fixed"}
+
+        _, list_body = _get(server, "/api/reports")
+        reports = json.loads(list_body)
+        r1 = next(r for r in reports if r["report_id"] == "r-1")
+        assert r1["status"] == "edited"
+        r2 = next(r for r in reports if r["report_id"] == "r-2")
+        assert r2["status"] == "unreviewed"
+
+    def test_confirm_ok_round_trip(self, running_server):
+        server, _ = running_server
+        self_status, _ = _post(server, "/api/reports/r-2/corrections", {"status": "confirmed_ok", "edits": {}})
+        assert self_status == 200
+        _, detail_body = _get(server, "/api/reports/r-2")
+        detail = json.loads(detail_body)
+        assert detail["correction"]["status"] == "confirmed_ok"
+
+    def test_unknown_report_id_is_404(self, running_server):
+        server, _ = running_server
+        status, _ = _post(server, "/api/reports/does-not-exist/corrections", {"status": "edited", "edits": {}})
+        assert status == 404
