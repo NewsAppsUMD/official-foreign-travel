@@ -1,2 +1,26 @@
 <!DOCTYPE html>
-<html><head><title>Report Review</title></head><body>placeholder</body></html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Report Review</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <h1>Flagged Reports</h1>
+  <div id="progress"></div>
+  <select id="status-filter">
+    <option value="">All statuses</option>
+    <option value="unreviewed">Unreviewed</option>
+    <option value="confirmed_ok">Confirmed OK</option>
+    <option value="edited">Edited</option>
+  </select>
+  <table id="reports-table">
+    <thead>
+      <tr><th>Report ID</th><th>Sponsor</th><th>Source File</th><th>Flags</th><th>Travelers</th><th>Status</th></tr>
+    </thead>
+    <tbody id="reports-body"></tbody>
+  </table>
+  <script src="/app.js"></script>
+  <script>renderList();</script>
+</body>
+</html>
