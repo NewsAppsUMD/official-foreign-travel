@@ -109,13 +109,13 @@ def apply_corrections(reports: List[Report], corrections: Dict[str, dict]) -> Li
                 get_path(data, path)
                 set_path(data, path, value)
             corrected = Report.model_validate(data)
+            if "MANUALLY_CORRECTED" not in corrected.flags:
+                corrected.flags.append("MANUALLY_CORRECTED")
+            validate_report(corrected)
         except (KeyError, IndexError, ValueError, TypeError) as e:
             logger.warning("Skipping corrections for report %s: %s", report.report_id, e)
             continue
 
-        if "MANUALLY_CORRECTED" not in corrected.flags:
-            corrected.flags.append("MANUALLY_CORRECTED")
-        validate_report(corrected)
         reports[index] = corrected
 
     return reports
