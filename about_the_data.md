@@ -57,9 +57,10 @@ each traveler with their segments, each segment with resolved dates and the full
 breakdown. It is not committed to this repository because of its size; regenerate it
 locally or via `oft-parse report_text/ output.json --include-superseded` (add
 `--include-superseded` to also get amended-report duplicates that would otherwise be
-excluded). [`travel_report_data.csv`](travel_report_data.csv) is a flattened, one-row-per-segment
-export in the same column layout the pre-v3 CSV used, with additional cost/flag columns
-appended for backward compatibility.
+excluded). `travel_report_data.csv` (generated with `oft-parse report_text/
+travel_report_data.csv`) is a flattened, one-row-per-segment export in the same column
+layout the pre-v3 CSV used, with additional cost/flag columns appended for backward
+compatibility. Like the JSON output, it's not committed here -- regenerate it locally.
 
 An optional `--llm-fallback` flag (requires the `llm` extra, Python 3.10+, and whichever
 model's credentials `--llm-model` needs -- an Anthropic model by default, or a local/cloud
