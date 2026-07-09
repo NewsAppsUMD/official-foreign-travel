@@ -1,6 +1,7 @@
 """Advanced fuzzy name matching for legislators."""
 
 import pickle
+from functools import cache
 from itertools import permutations
 from pathlib import Path
 from typing import Optional
@@ -13,6 +14,65 @@ from ..utils.logging import get_logger
 from ..utils.text import lower_name, normalize_name
 
 logger = get_logger(__name__)
+
+
+@cache
+def _word_score(s1: str, s2: str) -> float:
+    """
+    Score two words based on longest common substring.
+
+    First letter must match, then scores based on longest common
+    substring of remaining characters. Pure function of its two
+    arguments, and the same word pairs recur constantly across the
+    ~440 candidates scored per query -- cached unbounded (the
+    vocabulary is name words, small and finite).
+    """
+    if not s1 or not s2 or s1[0] != s2[0]:
+        return 0.0
+
+    len_s1 = len(s1)
+    len_s2 = len(s2)
+
+    # Dynamic programming for longest common substring
+    scores = [[0] * len_s2 for _ in range(len_s1)]
+
+    for j in range(1, len_s2):
+        for i in range(1, len_s1):
+            if s1[i] == s2[j]:
+                scores[i][j] = scores[i - 1][j - 1] + 1
+            scores[i][j] = max(scores[i - 1][j], scores[i][j - 1], scores[i][j])
+
+    return (1.0 + scores[-1][-1]) / max(len_s1, len_s2)
+
+
+@cache
+def _words_list_score(s1: str, s2: str) -> float:
+    """
+    Score two word lists using dynamic programming over word alignments.
+
+    Pure function of its two arguments; cached for the same reason as
+    _word_score.
+    """
+    if not s1.strip() or not s2.strip():
+        return 0.0
+
+    words1 = s1.strip().split(" ")
+    words2 = s2.strip().split(" ")
+    len1 = len(words1)
+    len2 = len(words2)
+
+    # DP: best alignment of words
+    scores = [[0.0] * (len2 + 1) for _ in range(len1 + 1)]
+
+    for i in range(1, len1 + 1):
+        for j in range(1, len2 + 1):
+            scores[i][j] = max(
+                scores[i - 1][j],
+                scores[i][j - 1],
+                scores[i - 1][j - 1] + _word_score(words1[i - 1], words2[j - 1]),
+            )
+
+    return scores[-1][-1] / max(len2, len1)
 
 
 class NameMatcher:
@@ -204,67 +264,12 @@ class NameMatcher:
                     self.members_index[(year, month)][member_bioguide] = member_tuple
 
     def _word_score(self, s1: str, s2: str) -> float:
-        """
-        Score two words based on longest common substring.
-
-        First letter must match, then scores based on longest common
-        substring of remaining characters.
-
-        Args:
-            s1: First word
-            s2: Second word
-
-        Returns:
-            Score between 0 and 1
-        """
-        if not s1 or not s2 or s1[0] != s2[0]:
-            return 0.0
-
-        len_s1 = len(s1)
-        len_s2 = len(s2)
-
-        # Dynamic programming for longest common substring
-        scores = [[0] * len_s2 for _ in range(len_s1)]
-
-        for j in range(1, len_s2):
-            for i in range(1, len_s1):
-                if s1[i] == s2[j]:
-                    scores[i][j] = scores[i - 1][j - 1] + 1
-                scores[i][j] = max(scores[i - 1][j], scores[i][j - 1], scores[i][j])
-
-        return (1.0 + scores[-1][-1]) / max(len_s1, len_s2)
+        """Score two words -- see the module-level cached implementation."""
+        return _word_score(s1, s2)
 
     def _words_list_score(self, s1: str, s2: str) -> float:
-        """
-        Score two word lists using dynamic programming.
-
-        Args:
-            s1: First word list (space-separated)
-            s2: Second word list (space-separated)
-
-        Returns:
-            Normalized score
-        """
-        if not s1.strip() or not s2.strip():
-            return 0.0
-
-        words1 = s1.strip().split(" ")
-        words2 = s2.strip().split(" ")
-        len1 = len(words1)
-        len2 = len(words2)
-
-        # DP: best alignment of words
-        scores = [[0.0] * (len2 + 1) for _ in range(len1 + 1)]
-
-        for i in range(1, len1 + 1):
-            for j in range(1, len2 + 1):
-                scores[i][j] = max(
-                    scores[i - 1][j],
-                    scores[i][j - 1],
-                    scores[i - 1][j - 1] + self._word_score(words1[i - 1], words2[j - 1]),
-                )
-
-        return scores[-1][-1] / max(len2, len1)
+        """Score two word lists -- see the module-level cached implementation."""
+        return _words_list_score(s1, s2)
 
     def _name_match(
         self,
@@ -286,7 +291,6 @@ class NameMatcher:
         Returns:
             Match score
         """
-        names_list = [(name, weight) for name, weight in zip(names, weights)]
         len_target = len(target)
 
         # Precompute all target slices (contiguous word sequences)
@@ -300,23 +304,49 @@ class NameMatcher:
                         target_slices[start][end - 1] + " " + target[end - 1]
                     )
 
-        # Try all permutations of name components
-        best_score = 0.0
-        for perm in permutations(range(len(names_list))):
-            # DP: best alignment of this permutation
-            scores = [[0.0] * (len_target + 1) for _ in range(6)]
+        # Score every (component, slice) pair exactly once. These scores
+        # depend only on the component text and the slice -- not on the
+        # permutation -- but the loop below used to recompute them inside
+        # every one of the 120 permutations, which made a single query take
+        # ~0.6s (a full-corpus run: an hour+).
+        pair_scores = [
+            [[0.0] * (len_target + 1) for _ in range(len_target)] for _ in range(len(names))
+        ]
+        for component in range(len(names)):
+            name_text = names[component]
+            weight = weights[component]
+            for start in range(len_target):
+                for end in range(start + 1, len_target + 1):
+                    pair_scores[component][start][end] = weight * _words_list_score(
+                        name_text, target_slices[start][end]
+                    )
 
-            for i in range(1, 6):
+        # A component that can't score against any slice (usually an empty
+        # middle/suffix/nickname) is a DP identity row -- its placement in
+        # the permutation never changes the result -- so only permute the
+        # components that can actually contribute. Most names have 2-3, so
+        # this is 2-6 permutations instead of 120, with identical output.
+        active = [
+            component
+            for component in range(len(names))
+            if any(score for row in pair_scores[component] for score in row)
+        ]
+        if not active:
+            return 0.0
+
+        best_score = 0.0
+        for perm in permutations(active):
+            # DP: best alignment of this permutation
+            scores = [[0.0] * (len_target + 1) for _ in range(len(perm) + 1)]
+
+            for i in range(1, len(perm) + 1):
+                component_scores = pair_scores[perm[i - 1]]
                 for j in range(1, len_target + 1):
                     options = [scores[i][j - 1], scores[i - 1][j]]
 
                     # Try matching this name component to various target slices
                     for start in range(j):
-                        name_text = names_list[perm[i - 1]][0]
-                        name_weight = names_list[perm[i - 1]][1]
-                        target_slice = target_slices[start][j]
-                        word_score = self._words_list_score(name_text, target_slice)
-                        options.append(scores[i - 1][start] + name_weight * word_score)
+                        options.append(scores[i - 1][start] + component_scores[start][j])
 
                     scores[i][j] = max(options)
 
