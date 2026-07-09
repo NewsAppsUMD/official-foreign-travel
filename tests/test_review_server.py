@@ -94,6 +94,20 @@ class TestListEndpoint:
         assert all(r["status"] == "unreviewed" for r in data)
 
 
+class TestCacheHeaders:
+    def test_api_and_static_responses_are_never_cached(self, running_server):
+        """Browsers heuristically cache responses with no Cache-Control across
+        server restarts, so a re-parse's changes silently wouldn't show up."""
+        server, _ = running_server
+        for path in ("/api/reports", "/api/reports/r-1", "/"):
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1])
+            conn.request("GET", path)
+            response = conn.getresponse()
+            response.read()
+            conn.close()
+            assert response.getheader("Cache-Control") == "no-store", path
+
+
 class TestStaticFiles:
     def test_serves_index_html(self, running_server):
         server, _ = running_server

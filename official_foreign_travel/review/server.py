@@ -63,6 +63,10 @@ def make_handler(
                 "Content-Type", CONTENT_TYPES.get(file_path.suffix, "application/octet-stream")
             )
             self.send_header("Content-Length", str(len(body)))
+            # Without this, browsers heuristically cache responses across
+            # server restarts -- so a re-parse's changes (new bioguide
+            # matches, changed flags) silently don't show up in the UI.
+            self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
 
@@ -71,6 +75,7 @@ def make_handler(
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
 
