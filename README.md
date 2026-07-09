@@ -25,6 +25,39 @@ See **[TECHNICAL_README.md](TECHNICAL_README.md)** for full installation, CLI, a
 documentation — including `--llm-fallback`, `--fuzzy-name-matching`, and merging human
 corrections back in with `--apply-corrections`.
 
+## Reviewing Flagged Reports
+
+Any table the parser can't fully resolve — a garbled date, a cost column that doesn't
+add up, a traveler name it can't match — is kept and flagged rather than dropped.
+`oft-review` is a local web tool for working through that flagged subset by hand:
+
+```bash
+uv run oft-parse report_text/ output.json
+uv run oft-review report_text/ output.json --corrections corrections.json
+```
+
+Then open http://127.0.0.1:8765/ in a browser:
+
+- The **list view** shows every flagged report, filterable by review status and flag
+  type, sortable by column, with a progress counter as you work through the queue.
+- Clicking a report opens the **detail view**: the original fixed-width source text on
+  the left, an editable form of every extracted field on the right. Clicking a
+  segment's heading highlights the source lines it was parsed from.
+- **Save** records your edits; **Confirm OK** marks a report reviewed with no changes
+  needed. Use **Prev/Next** to move through the queue.
+
+Corrections are written to the `--corrections` file (default `corrections.json`), never
+to the parsed output itself, so your review work survives any re-parse. To fold the
+corrections into a fresh parse:
+
+```bash
+uv run oft-parse report_text/ output.json --apply-corrections corrections.json
+```
+
+Corrected reports are tagged `MANUALLY_CORRECTED` (or `HUMAN_CONFIRMED` for
+confirm-OKs) in the output. The server binds only to localhost and has no
+authentication — it's meant for one local reviewer.
+
 ## Documentation
 
 - **[TECHNICAL_README.md](TECHNICAL_README.md)** — installation, usage, CLI reference,
