@@ -6,12 +6,73 @@ is testable without touching disk.
 """
 
 import csv
+import re
+import unicodedata
 from pathlib import Path
 from typing import Any, NamedTuple
 
 MIN_TERM_END = "1990-01-01"  # covers report_text/'s 1994-onward corpus with a small buffer
 
 _AMBIGUOUS = object()  # sentinel: two different people/committees share a key -- drop it
+
+_INITIAL_RE = re.compile(r"^[A-Z]\.?$")
+# "C. W. Bill" -> "C.W. Bill": reports usually print consecutive initials unspaced.
+_INITIALS_GAP_RE = re.compile(r"\b([A-Z])\. (?=[A-Z]\.)")
+
+# Common diminutives the reports use where congress-legislators has the formal
+# given name and no nickname field (e.g. "Hon. Gerry Connolly" for Gerald E.
+# Connolly). Wrong guesses are impossible by construction: if a diminutive
+# form collides with a different person's name, build_members_index drops the
+# key as ambiguous rather than matching either.
+DIMINUTIVES = {
+    "Andrew": ["Andy", "Drew"],
+    "Anthony": ["Tony"],
+    "Benjamin": ["Ben"],
+    "Charles": ["Charlie", "Chuck"],
+    "Christopher": ["Chris"],
+    "Cynthia": ["Cindy"],
+    "Daniel": ["Dan", "Danny"],
+    "David": ["Dave"],
+    "Deborah": ["Deb", "Debbie"],
+    "Donald": ["Don"],
+    "Douglas": ["Doug"],
+    "Edward": ["Ed"],
+    "Elizabeth": ["Liz"],
+    "Frederick": ["Fred"],
+    "Gerald": ["Gerry", "Jerry"],
+    "Gregory": ["Greg"],
+    "James": ["Jim", "Jimmy"],
+    "Jerrold": ["Jerry"],
+    "Jonathan": ["Jon"],
+    "Joseph": ["Joe"],
+    "Kenneth": ["Ken"],
+    "Lawrence": ["Larry"],
+    "Matthew": ["Matt"],
+    "Michael": ["Mike"],
+    "Newton": ["Newt"],
+    "Nicholas": ["Nick"],
+    "Patrick": ["Pat"],
+    "Peter": ["Pete"],
+    "Raymond": ["Ray"],
+    "Richard": ["Rich", "Rick", "Dick"],
+    "Robert": ["Rob", "Bob", "Bobby"],
+    "Rodney": ["Rod"],
+    "Ronald": ["Ron"],
+    "Samuel": ["Sam"],
+    "Stephen": ["Steve"],
+    "Steven": ["Steve"],
+    "Theodore": ["Ted"],
+    "Thomas": ["Tom"],
+    "Timothy": ["Tim"],
+    "William": ["Bill", "Will"],
+}
+
+# The other direction too: the YAML sometimes has the informal name as `first`
+# ("Tom Lantos") while reports print the formal one ("Thomas Lantos").
+FORMAL_NAMES: dict[str, list[str]] = {}
+for _formal, _dims in DIMINUTIVES.items():
+    for _dim in _dims:
+        FORMAL_NAMES.setdefault(_dim, []).append(_formal)
 
 
 class MembersResult(NamedTuple):
@@ -31,16 +92,67 @@ class CommitteesResult(NamedTuple):
     collisions: list[tuple[str, str, str]]  # (key, kept_code, rejected_code)
 
 
+def _fold_accents(text: str) -> str:
+    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+
+
+def _initialize(middle: str) -> str:
+    """Reduce each middle-name word to its initial: 'Lee' -> 'L.', 'F. H.' -> 'F. H.'."""
+    return " ".join(f"{word[0]}." for word in middle.split() if word)
+
+
+def _given_variants(first: str, middle: str, nickname: str) -> set[str]:
+    """The given-name forms a report might print for this person."""
+    givens = {first}
+    if nickname:
+        givens.add(nickname)
+    givens.update(DIMINUTIVES.get(first, []))
+    givens.update(FORMAL_NAMES.get(first, []))
+
+    # When the formal first name is just an initial ("K. Michael Conaway",
+    # "C. A. Dutch Ruppersberger"), the go-by name reports actually print
+    # ("Mike Conaway", "Dutch Ruppersberger") is the last word of `middle`.
+    if middle and _INITIAL_RE.match(first):
+        goby = middle.split()[-1]
+        if not _INITIAL_RE.match(goby):
+            givens.add(goby)
+            givens.update(DIMINUTIVES.get(goby, []))
+    return givens
+
+
+def _suffix_forms(body: str, suffix: str) -> set[str]:
+    """'... Brown' + 'Jr.' -> the punctuation spellings reports use."""
+    bare = suffix.rstrip(".")
+    return {f"{body} {suffix}", f"{body}, {suffix}", f"{body} {bare}", f"{body}, {bare}"}
+
+
+def _spelling_variants(names: set[str]) -> set[str]:
+    """Per-name spelling forms: collapsed consecutive initials and accents folded."""
+    expanded: set[str] = set()
+    for name in names:
+        forms = {name, _INITIALS_GAP_RE.sub(r"\1.", name)}
+        forms.update({_fold_accents(f) for f in forms})
+        expanded.update(f for f in forms if f)
+    return expanded
+
+
 def full_names_for(name_field: dict[str, Any]) -> set[str]:
     """
-    Return the name string(s) worth trying for one legislator's `name` field.
+    Return the name string(s) a report might print for one legislator's `name` field.
 
     `official_full` is only populated for a minority of legislators (mostly
     those serving since roughly the mid-2010s); requiring it drops most
     people who served earlier, even well within this corpus's 1994-2019
-    range. And even when present, it often includes a middle initial that
-    reports frequently omit ("Hon. Charles B. Rangel" vs. the more common
-    "Hon. Charles Rangel"), so always add a plain first/last form too.
+    range. And even when present, reports print many other forms of the same
+    person's name, all observed in the actual corpus: middle initial omitted
+    ("Charles Rangel"), middle word reduced to an initial ("David L. Hobson"
+    for David Lee Hobson), first+middle as initials ("E.B. Johnson" for Eddie
+    Bernice Johnson), consecutive initials unspaced ("C.W. Bill Young"),
+    accents dropped ("Nydia Velazquez"), multi-word surnames hyphenated
+    ("Sheila Jackson-Lee"), suffixes set off with a comma ("George E. Brown,
+    Jr"), and diminutives ("Gerry Connolly" for Gerald). Generating every
+    plausible form is safe: any form shared by two different people is
+    dropped as ambiguous by build_members_index, never guessed.
     """
     names = set()
     official_full = name_field.get("official_full")
@@ -50,19 +162,39 @@ def full_names_for(name_field: dict[str, Any]) -> set[str]:
     first = name_field.get("first")
     last = name_field.get("last")
     if not first or not last:
-        return names
+        return _spelling_variants(names)
 
-    middle = name_field.get("middle")
-    suffix = name_field.get("suffix")
-    nickname = name_field.get("nickname")
+    middle = name_field.get("middle") or ""
+    suffix = name_field.get("suffix") or ""
+    nickname = name_field.get("nickname") or ""
 
-    for given in filter(None, [first, nickname]):
-        names.add(f"{given} {last}")
-        if middle:
-            names.add(f"{given} {middle} {last}")
-        if suffix:
-            names.add(f"{given} {last} {suffix}")
-    return names
+    last_variants = {last}
+    if " " in last:
+        last_variants.add(last.replace(" ", "-"))
+    if "-" in last:
+        last_variants.add(last.replace("-", " "))
+
+    bodies = set()
+    for given in _given_variants(first, middle, nickname):
+        for last_variant in last_variants:
+            bodies.add(f"{given} {last_variant}")
+            if middle and given == first:
+                bodies.add(f"{given} {middle} {last_variant}")
+                initials = _initialize(middle)
+                if initials != middle:
+                    bodies.add(f"{given} {initials} {last_variant}")
+
+    # "E. B. Johnson" for Eddie Bernice Johnson: both names as initials.
+    if middle and not _INITIAL_RE.match(first):
+        for last_variant in last_variants:
+            bodies.add(f"{first[0]}. {_initialize(middle)} {last_variant}")
+
+    names.update(bodies)
+    if suffix:
+        for body in bodies:
+            names.update(_suffix_forms(body, suffix))
+
+    return _spelling_variants(names)
 
 
 def build_members_index(

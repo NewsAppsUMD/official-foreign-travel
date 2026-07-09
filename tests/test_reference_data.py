@@ -23,7 +23,7 @@ class TestFullNamesFor:
 
     def test_falls_back_to_first_last_when_no_official_full(self):
         names = full_names_for({"first": "Bill", "last": "Sali"})
-        assert names == {"Bill Sali"}
+        assert "Bill Sali" in names
 
     def test_includes_middle_name_variant(self):
         names = full_names_for({"first": "Sander", "middle": "M.", "last": "Levin"})
@@ -43,6 +43,60 @@ class TestFullNamesFor:
     def test_returns_empty_when_no_first_or_last(self):
         assert full_names_for({}) == set()
         assert full_names_for({"first": "Only"}) == set()
+
+    def test_folds_accents(self):
+        names = full_names_for({"first": "Nydia", "middle": "M.", "last": "Velázquez"})
+        assert "Nydia Velazquez" in names
+        assert "Nydia M. Velazquez" in names
+
+    def test_hyphenates_multi_word_last_name(self):
+        names = full_names_for({"first": "Sheila", "last": "Jackson Lee"})
+        assert "Sheila Jackson Lee" in names
+        assert "Sheila Jackson-Lee" in names
+
+    def test_unhyphenates_hyphenated_last_name(self):
+        names = full_names_for({"first": "Jane", "last": "Smith-Jones"})
+        assert "Jane Smith Jones" in names
+
+    def test_reduces_middle_word_to_initial(self):
+        names = full_names_for({"first": "David", "middle": "Lee", "last": "Hobson"})
+        assert "David L. Hobson" in names
+
+    def test_first_and_middle_as_initials(self):
+        names = full_names_for({"first": "Eddie", "middle": "Bernice", "last": "Johnson"})
+        assert "E. B. Johnson" in names
+        assert "E.B. Johnson" in names
+
+    def test_collapses_consecutive_initials(self):
+        names = full_names_for({"first": "C.", "middle": "W. Bill", "last": "Young"})
+        assert "C.W. Bill Young" in names
+
+    def test_goby_name_from_middle_when_first_is_an_initial(self):
+        names = full_names_for({"first": "K.", "middle": "Michael", "last": "Conaway"})
+        assert "Michael Conaway" in names
+        assert "Mike Conaway" in names  # diminutive of the go-by
+
+        names = full_names_for({"first": "C.", "middle": "A. Dutch", "last": "Ruppersberger"})
+        assert "Dutch Ruppersberger" in names
+
+    def test_diminutives_of_formal_first_name(self):
+        names = full_names_for({"first": "Gerald", "middle": "E.", "last": "Connolly"})
+        assert "Gerry Connolly" in names
+        assert "Jerry Connolly" in names
+
+    def test_formal_name_from_informal_first_name(self):
+        # The YAML sometimes stores the informal name ("Tom Lantos") while
+        # reports print the formal one ("Thomas Lantos").
+        names = full_names_for({"first": "Tom", "last": "Lantos"})
+        assert "Thomas Lantos" in names
+
+    def test_comma_and_bare_suffix_forms(self):
+        names = full_names_for(
+            {"first": "George", "middle": "E.", "last": "Brown", "suffix": "Jr."}
+        )
+        assert "George E. Brown, Jr" in names
+        assert "George E. Brown Jr." in names
+        assert "George Brown Jr" in names
 
 
 class TestBuildMembersIndex:
