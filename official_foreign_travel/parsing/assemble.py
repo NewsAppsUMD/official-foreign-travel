@@ -36,6 +36,10 @@ logger = get_logger(__name__)
 CANDIDATE_DATE_RE = re.compile(r"\d{1,2}/\d{1,2}\s+\d{1,2}/\d{1,2}")
 FOOTNOTE_LINE_RE = re.compile(r"^\s*\\(\d+)\\")
 RULE_RE = re.compile(r"^\s*-{10,}")
+# Trailing footnote markers on a traveler name ("Hon. Eliot Engel *",
+# "Hon. Al Green \4\", "William Patry\4\") -- part of the source text, so
+# they stay in the stored name, but they must not reach the match keys.
+NAME_FOOTNOTE_TAIL_RE = re.compile(r"(?:\s*(?:\*+|\\\d+\\|\(\d+\)))+\s*$")
 LOW_CONFIDENCE_THRESHOLD = 0.8
 
 
@@ -145,6 +149,10 @@ def _match_member(
     garbled date cells otherwise silently disable fuzzy matching for names
     it would resolve confidently.
     """
+    if not name:
+        return None, None, []
+
+    name = NAME_FOOTNOTE_TAIL_RE.sub("", name).strip()
     if not name:
         return None, None, []
 

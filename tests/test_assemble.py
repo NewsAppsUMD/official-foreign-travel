@@ -69,6 +69,37 @@ class TestAssembleFile:
         )
 
 
+class TestNameFootnoteMarkers:
+    """Trailing footnote markers on a name must not break bioguide matching."""
+
+    def test_trailing_asterisk_still_exact_matches(self):
+        member_index = {"HON. ELIOT ENGEL": "E000179"}
+        bioguide, confidence, flags = _match_member("Hon. Eliot Engel *", [], member_index, None)
+        assert bioguide == "E000179"
+        assert confidence == 1.0
+        assert flags == []
+
+    def test_trailing_backslash_marker_still_exact_matches(self):
+        member_index = {"HON. AL GREEN": "G000553"}
+        bioguide, _, _ = _match_member("Hon. Al Green \\4\\", [], member_index, None)
+        assert bioguide == "G000553"
+
+    def test_marker_without_space_still_exact_matches(self):
+        member_index = {"HON. TONY P. HALL": "H000034"}
+        bioguide, _, _ = _match_member("Hon. Tony P. Hall\\4\\", [], member_index, None)
+        assert bioguide == "H000034"
+
+    def test_double_asterisk_still_exact_matches(self):
+        member_index = {"HON. VICENTE GONZALEZ": "G000581"}
+        bioguide, _, _ = _match_member("Hon. Vicente Gonzalez **", [], member_index, None)
+        assert bioguide == "G000581"
+
+    def test_name_that_is_only_a_marker_stays_unmatched(self):
+        bioguide, confidence, flags = _match_member("**", [], {"HON. A": "X"}, None)
+        assert bioguide is None
+        assert flags == []
+
+
 class TestMemberDisambiguation:
     """(name, sponsor committee) resolution for names ambiguous even with dates."""
 
