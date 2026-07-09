@@ -17,7 +17,7 @@ def load(name: str) -> str:
 
 
 def data_lines_for(block):
-    return [l for l in block.lines if CANDIDATE_RE.search(l[:80])]
+    return [line for line in block.lines if CANDIDATE_RE.search(line[:80])]
 
 
 class TestColumnSpan:
@@ -88,5 +88,5 @@ class TestDetectLayout:
 def test_most_tables_in_each_fixture_get_a_confident_layout(filename):
     blocks = segment_tables(load(filename), filename)
     layouts = [detect_layout(b.lines, data_lines_for(b)) for b in blocks]
-    confident = [l for l in layouts if l is not None and l.confidence >= 0.7]
+    confident = [layout for layout in layouts if layout is not None and layout.confidence >= 0.7]
     assert len(confident) / len(blocks) > 0.85

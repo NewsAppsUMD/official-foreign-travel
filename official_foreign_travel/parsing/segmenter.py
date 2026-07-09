@@ -8,7 +8,6 @@ so files that never contain that delimiter still yield tables.
 
 import re
 from dataclasses import dataclass, field
-from typing import List
 
 from ..utils.text import strip_html_tags
 
@@ -27,11 +26,11 @@ class TableBlock:
     source_file: str
     table_index: int
     title_raw: str
-    lines: List[str] = field(default_factory=list)
+    lines: list[str] = field(default_factory=list)
     start_line: int = 0
 
 
-def segment_tables(text: str, source_file: str) -> List[TableBlock]:
+def segment_tables(text: str, source_file: str) -> list[TableBlock]:
     """
     Split file contents into TableBlocks, one per report header found.
 
@@ -50,7 +49,7 @@ def segment_tables(text: str, source_file: str) -> List[TableBlock]:
         end = header_idxs[table_index + 1] if table_index + 1 < len(header_idxs) else len(raw_lines)
         block_lines = raw_lines[start:end]
 
-        title_lines: List[str] = []
+        title_lines: list[str] = []
         for line in block_lines:
             if title_lines and RULE_RE.match(line.strip()):
                 break

@@ -6,7 +6,7 @@ import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 from ..models.report import Report
 from ..parsing.validate import validate_report
@@ -19,7 +19,7 @@ _SAVE_LOCK = threading.Lock()
 _TOKEN_RE = re.compile(r"^([^.\[\]]+)(\[(\d+)\])?$")
 
 
-def _parse_path(path: str) -> List[Tuple[str, Optional[int]]]:
+def _parse_path(path: str) -> list[tuple[str, Optional[int]]]:
     """Parse 'travelers[2].segments[0].costs.total' into
     [("travelers", 2), ("segments", 0), ("costs", None), ("total", None)]."""
     tokens = []
@@ -57,17 +57,17 @@ def set_path(data: Any, path: str, value: Any) -> None:
         current[last_key] = value
 
 
-def load_corrections(path: Path) -> Dict[str, dict]:
+def load_corrections(path: Path) -> dict[str, dict]:
     """Load the corrections overlay file, or return {} if it doesn't exist yet."""
     if not path.exists():
         return {}
-    result: Dict[str, dict] = json.loads(path.read_text(encoding="utf-8"))
+    result: dict[str, dict] = json.loads(path.read_text(encoding="utf-8"))
     return result
 
 
 def save_report_correction(
-    path: Path, report_id: str, status: str, edits: Dict[str, Any]
-) -> Dict[str, Any]:
+    path: Path, report_id: str, status: str, edits: dict[str, Any]
+) -> dict[str, Any]:
     """
     Save (replacing) one report's correction entry, preserving all others.
 
@@ -95,7 +95,7 @@ def save_report_correction(
         return entry
 
 
-def apply_corrections(reports: List[Report], corrections: Dict[str, dict]) -> List[Report]:
+def apply_corrections(reports: list[Report], corrections: dict[str, dict]) -> list[Report]:
     """
     Merge saved human corrections onto assembled reports, in place (by replacement).
 

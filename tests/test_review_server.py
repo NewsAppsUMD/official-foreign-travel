@@ -5,14 +5,15 @@ import json
 import threading
 from datetime import date
 from decimal import Decimal
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
 
 from official_foreign_travel.models.report import (
-    Costs,
     CostCell,
     CostGroup,
+    Costs,
     Period,
     Report,
     Sponsor,
@@ -20,7 +21,6 @@ from official_foreign_travel.models.report import (
     TravelSegment,
 )
 from official_foreign_travel.review.server import make_handler
-from http.server import ThreadingHTTPServer
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

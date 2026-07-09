@@ -3,9 +3,9 @@
 from decimal import Decimal
 
 from official_foreign_travel.parsing.costs import (
-    Costs,
-    CostGroup,
     CostCell,
+    CostGroup,
+    Costs,
     merge_costs,
     parse_cost_cell,
     parse_footnote_map,

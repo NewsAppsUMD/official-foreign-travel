@@ -3,7 +3,6 @@
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import List, Type
 from urllib.parse import urlparse
 
 from ..models.report import Report
@@ -15,8 +14,8 @@ CONTENT_TYPES = {".html": "text/html", ".css": "text/css", ".js": "application/j
 
 
 def make_handler(
-    reports: List[Report], report_text_dir: Path, corrections_path: Path
-) -> Type[BaseHTTPRequestHandler]:
+    reports: list[Report], report_text_dir: Path, corrections_path: Path
+) -> type[BaseHTTPRequestHandler]:
     """Build a request handler class closed over this run's reports and paths."""
     reports_by_id = {r.report_id: r for r in reports}
 
@@ -75,7 +74,7 @@ def make_handler(
             self.end_headers()
             self.wfile.write(body)
 
-        def _list_reports(self) -> List[dict]:
+        def _list_reports(self) -> list[dict]:
             corrections = load_corrections(corrections_path)
             return [
                 {
@@ -122,7 +121,7 @@ def make_handler(
 
 
 def run_server(
-    reports: List[Report],
+    reports: list[Report],
     report_text_dir: Path,
     corrections_path: Path,
     host: str = "127.0.0.1",

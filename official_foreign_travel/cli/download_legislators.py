@@ -1,8 +1,8 @@
 """CLI tool to download legislator YAML files."""
 
-import sys
-import logging
 import argparse
+import logging
+import sys
 from pathlib import Path
 
 import requests
@@ -43,7 +43,7 @@ def download_file(url: str, destination: Path, timeout: int = 30) -> bool:
     except requests.exceptions.RequestException as e:
         logger.error(f"Error downloading {url}: {e}")
         return False
-    except IOError as e:
+    except OSError as e:
         logger.error(f"Error saving to {destination}: {e}")
         return False
 

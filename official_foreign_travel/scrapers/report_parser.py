@@ -7,8 +7,9 @@ column-offset implementation this replaced dropped ~12% of records and
 never extracted costs. See TECHNICAL_README.md for the v3 architecture.
 """
 
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional
+from typing import Optional
 
 from ..matchers.name_matcher import NameMatcher
 from ..models.report import Report
@@ -35,10 +36,10 @@ class ReportParser:
         """
         self.config = config or get_config()
         self.name_matcher = name_matcher
-        self.member_index: Dict[str, str] = load_name_index(self.config.members_csv)
-        self.committee_index: Dict[str, str] = load_name_index(self.config.committees_csv)
+        self.member_index: dict[str, str] = load_name_index(self.config.members_csv)
+        self.committee_index: dict[str, str] = load_name_index(self.config.committees_csv)
 
-    def parse_file(self, file_path: Path) -> List[Report]:
+    def parse_file(self, file_path: Path) -> list[Report]:
         """Parse a single report file into Report objects, one per table."""
         return assemble_file(file_path, self.member_index, self.committee_index, self.name_matcher)
 
@@ -48,7 +49,7 @@ class ReportParser:
             directory, self.member_index, self.committee_index, self.name_matcher
         )
 
-    def parse_and_finalize(self, path: Path) -> List[Report]:
+    def parse_and_finalize(self, path: Path) -> list[Report]:
         """
         Parse a file or directory, then validate and deduplicate the results.
 
@@ -69,19 +70,19 @@ class ReportParser:
         return reports
 
     def write_csv(
-        self, reports: List[Report], output_file: Path, include_superseded: bool = False
-    ) -> Dict[str, int]:
+        self, reports: list[Report], output_file: Path, include_superseded: bool = False
+    ) -> dict[str, int]:
         """Write reports to a flat CSV (one row per traveler segment)."""
         return write_csv(reports, output_file, include_superseded)
 
     def write_json(
-        self, reports: List[Report], output_file: Path, include_superseded: bool = False
+        self, reports: list[Report], output_file: Path, include_superseded: bool = False
     ) -> None:
         """Write reports to the canonical JSON format."""
         write_json(reports, output_file, include_superseded)
 
     def write_jsonl(
-        self, reports: List[Report], output_file: Path, include_superseded: bool = False
-    ) -> Dict[str, int]:
+        self, reports: list[Report], output_file: Path, include_superseded: bool = False
+    ) -> dict[str, int]:
         """Write reports to flat JSON Lines (one traveler segment per line)."""
         return write_jsonl(reports, output_file, include_superseded)

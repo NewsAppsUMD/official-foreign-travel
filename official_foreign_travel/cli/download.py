@@ -6,8 +6,8 @@ import logging
 from pathlib import Path
 
 from ..scrapers.report_downloader import ReportDownloader
+from ..utils.config import get_config
 from ..utils.logging import setup_logger
-from ..utils.config import Config, get_config
 
 
 def main() -> None:

@@ -3,9 +3,9 @@
 from decimal import Decimal
 
 from official_foreign_travel.models.report import (
-    Costs,
     CostCell,
     CostGroup,
+    Costs,
     Report,
     Sponsor,
     Traveler,

@@ -10,7 +10,7 @@ treating anything left over as country-cell overflow is robust to that.
 
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 from ..utils.text import clean_cell
 from .costs import CostGroup, Costs, costs_has_data, merge_costs, parse_cost_cell
@@ -29,8 +29,8 @@ class SegmentDraft:
     departure_raw: str
     country_raw: str
     costs: Costs
-    flags: List[str] = field(default_factory=list)
-    source_lines: List[int] = field(default_factory=list)
+    flags: list[str] = field(default_factory=list)
+    source_lines: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -38,10 +38,10 @@ class TravelerDraft:
     """A named traveler and their travel segments within one table."""
 
     name: str
-    segments: List[SegmentDraft] = field(default_factory=list)
+    segments: list[SegmentDraft] = field(default_factory=list)
 
 
-def _find_date_tokens(zone: str) -> Optional[Tuple[re.Match, re.Match]]:
+def _find_date_tokens(zone: str) -> Optional[tuple[re.Match, re.Match]]:
     """Find the first two M/D token matches within a zone, searched from column 0.
 
     Searching from 0 (not from the layout's arrival boundary) makes this
@@ -56,9 +56,9 @@ def _find_date_tokens(zone: str) -> Optional[Tuple[re.Match, re.Match]]:
 
 
 def _parse_cost_cells(
-    line: str, layout: TableLayout, footnote_map: Dict[str, str]
-) -> Tuple[Costs, List[str]]:
-    flags: List[str] = []
+    line: str, layout: TableLayout, footnote_map: dict[str, str]
+) -> tuple[Costs, list[str]]:
+    flags: list[str] = []
     cells = []
     for span in layout.cost_columns:
         cell, flag = parse_cost_cell(span.slice(line), footnote_map)
@@ -79,10 +79,10 @@ def _parse_cost_cells(
 
 
 def extract_rows(
-    data_lines: List[Tuple[int, str]],
+    data_lines: list[tuple[int, str]],
     layout: TableLayout,
-    footnote_map: Dict[str, str],
-) -> Tuple[List[TravelerDraft], Optional[Costs], List[str]]:
+    footnote_map: dict[str, str],
+) -> tuple[list[TravelerDraft], Optional[Costs], list[str]]:
     """
     Extract travelers and their segments from a table's raw data lines.
 
@@ -94,9 +94,9 @@ def extract_rows(
     Returns:
         Tuple of (travelers, committee_total or None, table-level flags)
     """
-    travelers: List[TravelerDraft] = []
+    travelers: list[TravelerDraft] = []
     committee_total: Optional[Costs] = None
-    table_flags: List[str] = []
+    table_flags: list[str] = []
     current: Optional[TravelerDraft] = None
 
     for line_no, line in data_lines:

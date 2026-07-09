@@ -9,7 +9,7 @@ itself spans two years.
 import re
 from dataclasses import dataclass
 from datetime import date as date_cls
-from typing import List, Optional, Tuple
+from typing import Optional
 
 from .header import Period
 
@@ -21,7 +21,7 @@ WINDOW_PAD_DAYS = 60
 class ResolvedDates:
     arrival: Optional[date_cls]
     departure: Optional[date_cls]
-    flags: List[str]
+    flags: list[str]
 
 
 def _try_date(year: int, month: int, day: int) -> Optional[date_cls]:
@@ -31,7 +31,7 @@ def _try_date(year: int, month: int, day: int) -> Optional[date_cls]:
         return None
 
 
-def parse_month_day(raw: str) -> Optional[Tuple[int, int]]:
+def parse_month_day(raw: str) -> Optional[tuple[int, int]]:
     """Parse a raw 'M/D' token into (month, day), or None if unparseable."""
     match = DATE_RE.match(raw.strip().rstrip("."))
     if not match:
@@ -39,7 +39,7 @@ def parse_month_day(raw: str) -> Optional[Tuple[int, int]]:
     return int(match.group(1)), int(match.group(2))
 
 
-def _best_fit_year(month: int, day: int, years: List[int], period: Period) -> Optional[date_cls]:
+def _best_fit_year(month: int, day: int, years: list[int], period: Period) -> Optional[date_cls]:
     """Pick whichever candidate year places (month, day) closest to the table's period."""
     assert period.end is not None  # callers only reach here after checking this
     period_end = period.end
@@ -76,7 +76,7 @@ def resolve_segment_dates(
         Dates are never dropped for looking "wrong" (e.g. departure before
         arrival) -- that is flagged, not discarded.
     """
-    flags: List[str] = []
+    flags: list[str] = []
     arrival_md = parse_month_day(arrival_raw)
     departure_md = parse_month_day(departure_raw)
 

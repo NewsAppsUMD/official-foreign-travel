@@ -20,7 +20,7 @@ only when a repairer is actually constructed, not at import time.
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Protocol
+from typing import Any, Optional, Protocol
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -73,9 +73,9 @@ class LLMReportDraft(BaseModel):
     sponsor: Sponsor
     period: Optional[Period] = None
     header_raw: str = ""
-    travelers: List[Traveler] = Field(default_factory=list)
+    travelers: list[Traveler] = Field(default_factory=list)
     committee_total: Optional[Costs] = None
-    footnotes: Dict[str, str] = Field(default_factory=dict)
+    footnotes: dict[str, str] = Field(default_factory=dict)
 
 
 # Anthropic's (and possibly other backends') constrained-decoding structured-output
@@ -199,7 +199,7 @@ def _passes_invariants(report: Report) -> bool:
 
 def _match_members_in_place(
     report: Report,
-    member_index: Optional[Dict[str, str]],
+    member_index: Optional[dict[str, str]],
     name_matcher: Optional[NameMatcher],
 ) -> None:
     """
@@ -243,13 +243,13 @@ def _load_block(report: Report, report_text_dir: Path) -> Optional[TableBlock]:
 
 
 def apply_llm_fallback(
-    reports: List[Report],
+    reports: list[Report],
     repairer: TableRepairer,
     report_text_dir: Optional[Path] = None,
     fail_report_path: Optional[Path] = None,
-    member_index: Optional[Dict[str, str]] = None,
+    member_index: Optional[dict[str, str]] = None,
     name_matcher: Optional[NameMatcher] = None,
-) -> List[Report]:
+) -> list[Report]:
     """
     Repair failing reports via `repairer`, replacing them only if the result validates.
 
@@ -269,7 +269,7 @@ def apply_llm_fallback(
         The same list, with successfully-repaired reports replaced in place
     """
     report_text_dir = report_text_dir or Path(".")
-    failures: List[Dict[str, Any]] = []
+    failures: list[dict[str, Any]] = []
 
     for index, report in enumerate(reports):
         if not needs_repair(report):

@@ -5,10 +5,10 @@ import argparse
 import logging
 from pathlib import Path
 
-from ..scrapers.report_parser import ReportParser
 from ..matchers.name_matcher import NameMatcher
+from ..scrapers.report_parser import ReportParser
+from ..utils.config import get_config
 from ..utils.logging import setup_logger
-from ..utils.config import Config, get_config
 
 
 def main() -> int:

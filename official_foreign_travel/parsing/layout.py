@@ -9,8 +9,9 @@ left-aligned to its column).
 """
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import List, Optional, Sequence, Tuple
+from typing import Optional
 
 # Label text has occasional OCR-style typos in the source ("Hame of Member",
 # "Arrive"/"Depart" instead of "Arrival"/"Departure"), so these match on a
@@ -46,14 +47,14 @@ class TableLayout:
     arrival: ColumnSpan
     departure: ColumnSpan
     country: ColumnSpan
-    cost_columns: Tuple[
+    cost_columns: tuple[
         ColumnSpan, ...
     ]  # 8: pd_fc, pd_usd, tr_fc, tr_usd, ot_fc, ot_usd, tot_fc, tot_usd
     confidence: float
-    fingerprint: Tuple[int, ...]
+    fingerprint: tuple[int, ...]
 
 
-def _find_header_window(lines: List[str]) -> Optional[List[str]]:
+def _find_header_window(lines: list[str]) -> Optional[list[str]]:
     """Return the lines from the 'Name of Member' label through the rule that follows it."""
     start = None
     for i, line in enumerate(lines):
@@ -71,11 +72,11 @@ def _find_header_window(lines: List[str]) -> Optional[List[str]]:
     return window
 
 
-def _label_positions(window: List[str]) -> Optional[dict]:
+def _label_positions(window: list[str]) -> Optional[dict]:
     """Find raw label column positions within the header window."""
     name_pos = arrival_pos = departure_pos = country_pos = None
-    foreign_positions: List[int] = []
-    equivalent_positions: List[int] = []
+    foreign_positions: list[int] = []
+    equivalent_positions: list[int] = []
 
     for line in window:
         name_match = NAME_LABEL_RE.search(line)
@@ -127,7 +128,7 @@ def _is_token_start(line: str, col: int) -> bool:
     return line[col] != " " and line[col - 1] == " " and line[col - 2] == " "
 
 
-def _refine_boundary(guess: int, data_lines: Sequence[str]) -> Tuple[int, bool]:
+def _refine_boundary(guess: int, data_lines: Sequence[str]) -> tuple[int, bool]:
     """
     Snap a label-derived boundary guess to the nearest real token start in data rows.
 
@@ -158,7 +159,7 @@ def _refine_boundary(guess: int, data_lines: Sequence[str]) -> Tuple[int, bool]:
     return guess, False
 
 
-def detect_layout(block_lines: List[str], data_lines: Sequence[str]) -> Optional[TableLayout]:
+def detect_layout(block_lines: list[str], data_lines: Sequence[str]) -> Optional[TableLayout]:
     """
     Detect column boundaries for a table.
 

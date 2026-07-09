@@ -3,12 +3,13 @@
 import re
 import time
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import Optional
+
 import requests
 from bs4 import BeautifulSoup
 
-from ..utils.logging import get_logger
 from ..utils.config import Config, get_config
+from ..utils.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -28,7 +29,7 @@ class ReportDownloader:
         self.report_dir = Path(self.config.report_text_dir)
         self.report_dir.mkdir(parents=True, exist_ok=True)
 
-    def get_quarterly_urls(self, base_query_url: str) -> List[Dict]:
+    def get_quarterly_urls(self, base_query_url: str) -> list[dict]:
         """
         Generate URLs for all quarterly reports.
 
@@ -53,7 +54,7 @@ class ReportDownloader:
         )
         return urls
 
-    def get_report_urls(self, quarterly_urls: List[Dict]) -> List[Dict]:
+    def get_report_urls(self, quarterly_urls: list[dict]) -> list[dict]:
         """
         Extract report URLs from quarterly index pages.
 
@@ -95,7 +96,7 @@ class ReportDownloader:
         logger.info(f"Total reports found: {len(report_urls)}")
         return report_urls
 
-    def download_report(self, report: Dict) -> bool:
+    def download_report(self, report: dict) -> bool:
         """
         Download a single report.
 
@@ -133,7 +134,7 @@ class ReportDownloader:
             logger.error(f"Error downloading {filename}: {e}", exc_info=True)
             return False
 
-    def download_all_reports(self, report_urls: List[Dict]) -> Dict[str, int]:
+    def download_all_reports(self, report_urls: list[dict]) -> dict[str, int]:
         """
         Download all reports.
 
@@ -200,7 +201,7 @@ class ReportDownloader:
 
         return None
 
-    def save_report_urls_to_file(self, report_urls: List[Dict], output_file: Path) -> None:
+    def save_report_urls_to_file(self, report_urls: list[dict], output_file: Path) -> None:
         """
         Save report URLs to a text file.
 

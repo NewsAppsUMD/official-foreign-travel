@@ -1,8 +1,9 @@
 """Member/legislator models."""
 
-from typing import Optional, List
 from datetime import date
-from pydantic import BaseModel, Field, ConfigDict
+from typing import Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class MemberInput(BaseModel):

@@ -9,9 +9,9 @@ from pathlib import Path
 import pytest
 
 from official_foreign_travel.models.report import (
-    Costs,
     CostCell,
     CostGroup,
+    Costs,
     Period,
     Report,
     Sponsor,

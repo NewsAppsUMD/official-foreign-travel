@@ -2,7 +2,7 @@
 
 from datetime import date
 from decimal import Decimal
-from typing import Dict, List, Literal, Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
@@ -22,7 +22,7 @@ class CostCell(BaseModel):
 
     amount: Optional[Decimal] = None
     raw: str = ""
-    footnotes: List[str] = Field(default_factory=list)
+    footnotes: list[str] = Field(default_factory=list)
     military_air: bool = False
 
     @field_serializer("amount")
@@ -55,10 +55,10 @@ class TravelSegment(BaseModel):
     arrival_raw: str
     departure_raw: str
     country_raw: str
-    countries: List[str] = Field(default_factory=list)
+    countries: list[str] = Field(default_factory=list)
     costs: Costs
-    flags: List[str] = Field(default_factory=list)
-    source_lines: List[int] = Field(default_factory=list)
+    flags: list[str] = Field(default_factory=list)
+    source_lines: list[int] = Field(default_factory=list)
 
 
 class Traveler(BaseModel):
@@ -70,7 +70,7 @@ class Traveler(BaseModel):
     honorific: Optional[str] = None
     bioguide_id: Optional[str] = None
     match_confidence: Optional[float] = None
-    segments: List[TravelSegment] = Field(default_factory=list)
+    segments: list[TravelSegment] = Field(default_factory=list)
 
 
 class Sponsor(BaseModel):
@@ -107,10 +107,10 @@ class Report(BaseModel):
     sponsor: Sponsor
     period: Optional[Period] = None
     header_raw: str
-    travelers: List[Traveler] = Field(default_factory=list)
+    travelers: list[Traveler] = Field(default_factory=list)
     committee_total: Optional[Costs] = None
-    footnotes: Dict[str, str] = Field(default_factory=dict)
+    footnotes: dict[str, str] = Field(default_factory=dict)
     signature_raw: Optional[str] = None
-    flags: List[str] = Field(default_factory=list)
-    layout_fingerprint: List[int] = Field(default_factory=list)
+    flags: list[str] = Field(default_factory=list)
+    layout_fingerprint: list[int] = Field(default_factory=list)
     layout_confidence: Optional[float] = None

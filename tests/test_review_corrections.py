@@ -1,10 +1,25 @@
 """Tests for the corrections overlay: dotted-path get/set, load/save, and merging."""
 
 import json
+import threading
+from datetime import date
+from decimal import Decimal
 
 import pytest
 
+from official_foreign_travel.models.report import (
+    CostCell,
+    CostGroup,
+    Costs,
+    Period,
+    Report,
+    Sponsor,
+    Traveler,
+    TravelSegment,
+)
+from official_foreign_travel.parsing.validate import validate_report
 from official_foreign_travel.review.corrections import (
+    apply_corrections,
     get_path,
     load_corrections,
     save_report_correction,
@@ -93,8 +108,6 @@ class TestSaveReportCorrection:
         assert set(data.keys()) == {"r-1", "r-2"}
 
     def test_concurrent_saves_do_not_drop_each_others_entries(self, tmp_path):
-        import threading
-
         path = tmp_path / "corrections.json"
         barrier = threading.Barrier(2)
 
@@ -110,23 +123,6 @@ class TestSaveReportCorrection:
 
         data = load_corrections(path)
         assert set(data.keys()) == {"r-1", "r-2"}
-
-
-from datetime import date
-from decimal import Decimal
-
-from official_foreign_travel.models.report import (
-    Costs,
-    CostCell,
-    CostGroup,
-    Period,
-    Report,
-    Sponsor,
-    Traveler,
-    TravelSegment,
-)
-from official_foreign_travel.parsing.validate import validate_report
-from official_foreign_travel.review.corrections import apply_corrections
 
 
 def _cell(amount=None):

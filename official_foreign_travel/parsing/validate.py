@@ -1,7 +1,6 @@
 """Arithmetic and date invariant checks. Flags problems; never drops records."""
 
 from decimal import Decimal
-from typing import List
 
 from ..models.report import Costs, Report
 
@@ -69,7 +68,7 @@ def validate_report(report: Report, tolerance: Decimal = DEFAULT_TOLERANCE) -> R
     return report
 
 
-def validate_reports(reports: List[Report], tolerance: Decimal = DEFAULT_TOLERANCE) -> List[Report]:
+def validate_reports(reports: list[Report], tolerance: Decimal = DEFAULT_TOLERANCE) -> list[Report]:
     """Validate a list of reports in place, returning the same list."""
     for report in reports:
         validate_report(report, tolerance)

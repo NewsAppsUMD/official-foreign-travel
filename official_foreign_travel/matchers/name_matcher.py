@@ -1,18 +1,16 @@
 """Advanced fuzzy name matching for legislators."""
 
-import re
 import pickle
-from pathlib import Path
-from typing import Dict, List, Tuple, Optional, Set
-from datetime import datetime
 from itertools import permutations
+from pathlib import Path
+from typing import Optional
 
 import yaml
 
 from ..models.match import NameMatch, NameMatchResult
+from ..utils.config import Config, get_config
 from ..utils.logging import get_logger
 from ..utils.text import lower_name, normalize_name
-from ..utils.config import Config, get_config
 
 logger = get_logger(__name__)
 
@@ -34,9 +32,9 @@ class NameMatcher:
             config: Optional configuration object
         """
         self.config = config or get_config()
-        self.members_index: Dict[Tuple[int, int], Dict[str, Tuple]] = {}
-        self.members_dict: Dict[str, Dict] = {}
-        self.charset: Set[str] = set()
+        self.members_index: dict[tuple[int, int], dict[str, tuple]] = {}
+        self.members_dict: dict[str, dict] = {}
+        self.charset: set[str] = set()
         self._initialized = False
 
     def initialize(self, use_cache: bool = True, cache_path: Optional[Path] = None) -> None:
@@ -99,7 +97,7 @@ class NameMatcher:
             f"{len(self.members_index)} time periods"
         )
 
-    def _load_yaml_data(self) -> List[Dict]:
+    def _load_yaml_data(self) -> list[dict]:
         """Load legislator data from YAML files."""
         members_list = []
 
@@ -128,7 +126,7 @@ class NameMatcher:
 
         return members_list
 
-    def _get_charset(self, members_list: List[Dict]) -> Set[str]:
+    def _get_charset(self, members_list: list[dict]) -> set[str]:
         """Extract character set from all member names."""
         charset = set()
         for member in members_list:
@@ -138,11 +136,11 @@ class NameMatcher:
                     charset.update(set(lower_name(name_dict[field])))
         return charset
 
-    def _generate_bioguide_dict(self, members_list: List[Dict]) -> Dict[str, Dict]:
+    def _generate_bioguide_dict(self, members_list: list[dict]) -> dict[str, dict]:
         """Create bioguide ID to member dict mapping."""
         return {member["id"]["bioguide"]: member for member in members_list}
 
-    def _get_names(self, name_dict: Dict) -> Tuple[str, str, str, str, str]:
+    def _get_names(self, name_dict: dict) -> tuple[str, str, str, str, str]:
         """Extract name components from name dict."""
         return (
             name_dict.get("first", ""),
@@ -154,7 +152,7 @@ class NameMatcher:
 
     def _month_iterator(
         self, start_year: int, start_month: int, end_year: int, end_month: int
-    ) -> Tuple[int, int]:
+    ) -> tuple[int, int]:
         """Generate (year, month) tuples for a date range."""
         year, month = start_year, start_month
         while (year < end_year) or ((year == end_year) and (month <= end_month)):
@@ -164,7 +162,7 @@ class NameMatcher:
                 month = 1
                 year += 1
 
-    def _append_data(self, members_list: List[Dict]) -> None:
+    def _append_data(self, members_list: list[dict]) -> None:
         """Build time-indexed member database."""
         for member in members_list:
             firstname, middlename, lastname, suffix, nickname = self._get_names(member["name"])
@@ -270,9 +268,9 @@ class NameMatcher:
 
     def _name_match(
         self,
-        names: Tuple[str, str, str, str, str],
-        target: List[str],
-        weights: Tuple[float, float, float, float, float] = (0.8, 0.4, 4.0, 0.2, 1.0),
+        names: tuple[str, str, str, str, str],
+        target: list[str],
+        weights: tuple[float, float, float, float, float] = (0.8, 0.4, 4.0, 0.2, 1.0),
     ) -> float:
         """
         Score a member's name against target words.
@@ -359,7 +357,7 @@ class NameMatcher:
             )
 
         # Search all members active during the date range
-        candidates: Dict[str, float] = {}
+        candidates: dict[str, float] = {}
 
         for year, month in self._month_iterator(arr_year, arr_month, dep_year, dep_month):
             if (year, month) not in self.members_index:
@@ -414,7 +412,7 @@ class NameMatcher:
 
         return result
 
-    def get_name_by_bioguide(self, bioguide_id: str) -> Optional[Dict]:
+    def get_name_by_bioguide(self, bioguide_id: str) -> Optional[dict]:
         """
         Get full name dict by bioguide ID.
 

@@ -20,10 +20,10 @@ def load(name: str) -> str:
 
 def rows_for(block):
     """Reproduce what assemble.py will do: run the whole block through layout+rows."""
-    data_lines = [l for l in block.lines if CANDIDATE_RE.search(l[:80])]
+    data_lines = [line for line in block.lines if CANDIDATE_RE.search(line[:80])]
     layout = detect_layout(block.lines, data_lines)
     assert layout is not None, f"no layout for table {block.table_index}"
-    footnote_lines = [l for l in block.lines if FOOTNOTE_LINE_RE.match(l)]
+    footnote_lines = [line for line in block.lines if FOOTNOTE_LINE_RE.match(line)]
     footnote_map = parse_footnote_map(footnote_lines)
     numbered_lines = list(enumerate(block.lines, start=1))
     return extract_rows(numbered_lines, layout, footnote_map)
@@ -118,13 +118,13 @@ class TestExtractRows:
             blocks = segment_tables(load(filename), filename)
             total_segments = 0
             for block in blocks:
-                data_lines = [l for l in block.lines if CANDIDATE_RE.search(l[:80])]
+                data_lines = [line for line in block.lines if CANDIDATE_RE.search(line[:80])]
                 if not data_lines:
                     continue
                 layout = detect_layout(block.lines, data_lines)
                 if layout is None:
                     continue
-                footnote_lines = [l for l in block.lines if FOOTNOTE_LINE_RE.match(l)]
+                footnote_lines = [line for line in block.lines if FOOTNOTE_LINE_RE.match(line)]
                 footnote_map = parse_footnote_map(footnote_lines)
                 travelers, _, _ = extract_rows(
                     list(enumerate(block.lines, start=1)), layout, footnote_map
@@ -132,5 +132,6 @@ class TestExtractRows:
                 total_segments += sum(len(t.segments) for t in travelers)
             assert (
                 total_segments
-                >= len([l for b in blocks for l in b.lines if CANDIDATE_RE.search(l[:80])]) - 5
+                >= len([line for b in blocks for line in b.lines if CANDIDATE_RE.search(line[:80])])
+                - 5
             )  # small slack for genuinely-unparseable rows within low-confidence tables

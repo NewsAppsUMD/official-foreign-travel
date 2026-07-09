@@ -71,11 +71,11 @@ def normalize_name(name: str, charset: Optional[set] = None) -> str:
     name = re.sub(r" +", " ", name)
 
     if charset is not None:
-        charset_lower = set(c.lower() for c in charset)
+        charset_lower = {c.lower() for c in charset}
         if "-" in charset_lower:
             charset_lower.remove("-")
             charset_lower.add(r"\-")
-        pattern = r"[^{0}]".format("".join(c for c in charset_lower))
+        pattern = r"[^{}]".format("".join(c for c in charset_lower))
         name = re.sub(pattern, " ", name)
     else:
         name = re.sub(r"[^ a-zA-Z]", " ", name)

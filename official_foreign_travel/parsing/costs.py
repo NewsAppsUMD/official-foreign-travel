@@ -3,7 +3,7 @@
 import re
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 FOOTNOTE_DEF_RE = re.compile(r"^\\(\d+)\\\s*(.*)$")
 FOOTNOTE_MARKER_RE = re.compile(r"\\(\d+)\\")
@@ -20,7 +20,7 @@ class CostCell:
 
     amount: Optional[Decimal]
     raw: str
-    footnotes: List[str] = field(default_factory=list)
+    footnotes: list[str] = field(default_factory=list)
     military_air: bool = False
 
 
@@ -42,7 +42,7 @@ class Costs:
     total: CostGroup
 
 
-def parse_footnote_map(footnote_lines: List[str]) -> Dict[str, str]:
+def parse_footnote_map(footnote_lines: list[str]) -> dict[str, str]:
     """
     Parse footnote definition lines (e.g. "\\1\\ Per diem constitutes lodging and meals.").
 
@@ -61,8 +61,8 @@ def parse_footnote_map(footnote_lines: List[str]) -> Dict[str, str]:
 
 
 def parse_cost_cell(
-    raw: str, footnote_map: Optional[Dict[str, str]] = None
-) -> Tuple[CostCell, Optional[str]]:
+    raw: str, footnote_map: Optional[dict[str, str]] = None
+) -> tuple[CostCell, Optional[str]]:
     """
     Parse a single fixed-width cost cell.
 
@@ -79,7 +79,7 @@ def parse_cost_cell(
     """
     footnote_map = footnote_map or {}
     text = raw.strip()
-    footnotes: List[str] = []
+    footnotes: list[str] = []
 
     whole_cell_match = WHOLE_CELL_FOOTNOTE_RE.match(text)
     if whole_cell_match:

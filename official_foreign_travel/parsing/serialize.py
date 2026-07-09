@@ -4,7 +4,6 @@ import csv
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List
 
 from ..models.report import Report, Traveler, TravelSegment
 
@@ -39,13 +38,13 @@ CSV_FIELDNAMES = [
 ]
 
 
-def visible_reports(reports: List[Report], include_superseded: bool) -> List[Report]:
+def visible_reports(reports: list[Report], include_superseded: bool) -> list[Report]:
     if include_superseded:
         return reports
     return [r for r in reports if r.superseded_by is None]
 
 
-def to_json_dict(reports: List[Report], include_superseded: bool = False) -> Dict:
+def to_json_dict(reports: list[Report], include_superseded: bool = False) -> dict:
     """Build the canonical JSON-serializable dict for a set of reports."""
     visible = visible_reports(reports, include_superseded)
     return {
@@ -56,7 +55,7 @@ def to_json_dict(reports: List[Report], include_superseded: bool = False) -> Dic
     }
 
 
-def write_json(reports: List[Report], output_path: Path, include_superseded: bool = False) -> None:
+def write_json(reports: list[Report], output_path: Path, include_superseded: bool = False) -> None:
     """Write the canonical JSON representation: {schema_version, reports: [...]}."""
     payload = to_json_dict(reports, include_superseded)
     with open(output_path, "w", encoding="utf-8") as f:
@@ -124,8 +123,8 @@ def _flatten_segment_row(report: Report, traveler: Traveler, segment: TravelSegm
 
 
 def write_csv(
-    reports: List[Report], output_path: Path, include_superseded: bool = False
-) -> Dict[str, int]:
+    reports: list[Report], output_path: Path, include_superseded: bool = False
+) -> dict[str, int]:
     """
     Write a flat CSV, one row per traveler segment.
 
@@ -146,8 +145,8 @@ def write_csv(
 
 
 def write_jsonl(
-    reports: List[Report], output_path: Path, include_superseded: bool = False
-) -> Dict[str, int]:
+    reports: list[Report], output_path: Path, include_superseded: bool = False
+) -> dict[str, int]:
     """Write flat records, one JSON object per traveler segment, one per line."""
     visible = visible_reports(reports, include_superseded)
     row_count = 0

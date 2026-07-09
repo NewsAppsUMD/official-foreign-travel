@@ -1,6 +1,5 @@
 """Tests for text utility functions."""
 
-import pytest
 from official_foreign_travel.utils.text import lower_name, normalize_name
 
 

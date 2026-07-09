@@ -8,7 +8,7 @@ marked with `superseded_by` and excluded from flat exports by default.
 
 import re
 from datetime import date
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Optional
 
 from ..models.report import Report
 from .months import month_num
@@ -38,7 +38,7 @@ def parse_publication_date(source_file: str) -> Optional[date]:
         return None
 
 
-def _dedup_key(report: Report) -> Optional[Tuple[str, str, date, date]]:
+def _dedup_key(report: Report) -> Optional[tuple[str, str, date, date]]:
     if report.period is None or report.period.start is None or report.period.end is None:
         return None
     return (
@@ -49,13 +49,13 @@ def _dedup_key(report: Report) -> Optional[Tuple[str, str, date, date]]:
     )
 
 
-def _rank(report: Report) -> Tuple[date, bool, int]:
+def _rank(report: Report) -> tuple[date, bool, int]:
     """Higher rank wins: later publication date, then amended, then later file/table order."""
     pub_date = parse_publication_date(report.source_file) or date.min
     return (pub_date, report.amended, report.table_index)
 
 
-def _traveler_name_set(report: Report) -> Set[str]:
+def _traveler_name_set(report: Report) -> set[str]:
     return {t.name.strip().upper() for t in report.travelers if t.name.strip()}
 
 
@@ -71,9 +71,9 @@ def _is_duplicate_pair(a: Report, b: Report) -> bool:
     return (overlap / smaller) >= ROSTER_OVERLAP_THRESHOLD
 
 
-def _cluster(indices: List[int], reports: List[Report]) -> List[List[int]]:
+def _cluster(indices: list[int], reports: list[Report]) -> list[list[int]]:
     """Group indices into clusters of mutually-duplicate reports (union-find)."""
-    parent: Dict[int, int] = {i: i for i in indices}
+    parent: dict[int, int] = {i: i for i in indices}
 
     def find(i: int) -> int:
         while parent[i] != i:
@@ -91,13 +91,13 @@ def _cluster(indices: List[int], reports: List[Report]) -> List[List[int]]:
             if _is_duplicate_pair(reports[i], reports[j]):
                 union(i, j)
 
-    clusters: Dict[int, List[int]] = {}
+    clusters: dict[int, list[int]] = {}
     for i in indices:
         clusters.setdefault(find(i), []).append(i)
     return list(clusters.values())
 
 
-def dedup_reports(reports: List[Report]) -> List[Report]:
+def dedup_reports(reports: list[Report]) -> list[Report]:
     """
     Mark superseded reports among true duplicates sharing a sponsor+period.
 
@@ -110,7 +110,7 @@ def dedup_reports(reports: List[Report]) -> List[Report]:
         but have disjoint traveler rosters and no amended flag (distinct
         reports filed under the same generic sponsor label), are left alone.
     """
-    candidate_groups: Dict[tuple, List[int]] = {}
+    candidate_groups: dict[tuple, list[int]] = {}
     for index, report in enumerate(reports):
         key = _dedup_key(report)
         if key is None:

@@ -6,8 +6,9 @@ matching into a single validated Report per table.
 
 import csv
 import re
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Tuple
+from typing import Optional
 
 from ..matchers.name_matcher import NameMatcher
 from ..models.report import (
@@ -38,9 +39,9 @@ RULE_RE = re.compile(r"^\s*-{10,}")
 LOW_CONFIDENCE_THRESHOLD = 0.8
 
 
-def load_name_index(csv_path: Path) -> Dict[str, str]:
+def load_name_index(csv_path: Path) -> dict[str, str]:
     """Load an uppercase-name -> code lookup from a two-column CSV (name,code)."""
-    index: Dict[str, str] = {}
+    index: dict[str, str] = {}
     try:
         with open(csv_path, encoding="utf-8") as f:
             reader = csv.DictReader(f)
@@ -78,7 +79,7 @@ def _to_pydantic_costs(draft: costs_module.Costs) -> Costs:
     )
 
 
-def _extract_signature(block_lines: List[str]) -> Optional[str]:
+def _extract_signature(block_lines: list[str]) -> Optional[str]:
     """Best-effort grab of the chairman signature block after the closing table rule."""
     rule_indices = [i for i, line in enumerate(block_lines) if RULE_RE.match(line)]
     if len(rule_indices) < 2:
@@ -94,11 +95,11 @@ def _extract_signature(block_lines: List[str]) -> Optional[str]:
 
 def _match_member(
     name: str,
-    segments: List[TravelSegment],
-    member_index: Dict[str, str],
+    segments: list[TravelSegment],
+    member_index: dict[str, str],
     name_matcher: Optional[NameMatcher],
     honorific: Optional[str] = None,
-) -> Tuple[Optional[str], Optional[float], List[str]]:
+) -> tuple[Optional[str], Optional[float], list[str]]:
     """
     Resolve a traveler's bioguide ID: exact match first, fuzzy fallback, else flagged blank.
 
@@ -166,8 +167,8 @@ def _match_member(
 
 def assemble_table(
     block: TableBlock,
-    member_index: Optional[Dict[str, str]] = None,
-    committee_index: Optional[Dict[str, str]] = None,
+    member_index: Optional[dict[str, str]] = None,
+    committee_index: Optional[dict[str, str]] = None,
     name_matcher: Optional[NameMatcher] = None,
 ) -> Report:
     """
@@ -187,7 +188,7 @@ def assemble_table(
     committee_index = committee_index or {}
 
     header_info = parse_header(block.title_raw)
-    flags: List[str] = list(header_info.flags)
+    flags: list[str] = list(header_info.flags)
 
     numbered_lines = list(enumerate(block.lines, start=1))
     candidate_lines = [line for line in block.lines if CANDIDATE_DATE_RE.search(line[:80])]
@@ -196,7 +197,7 @@ def assemble_table(
     footnote_lines = [line for line in block.lines if FOOTNOTE_LINE_RE.match(line)]
     footnote_map = parse_footnote_map(footnote_lines)
 
-    travelers_out: List[Traveler] = []
+    travelers_out: list[Traveler] = []
     committee_total_out: Optional[Costs] = None
 
     if layout is None:
@@ -292,10 +293,10 @@ def assemble_table(
 
 def assemble_file(
     file_path: Path,
-    member_index: Optional[Dict[str, str]] = None,
-    committee_index: Optional[Dict[str, str]] = None,
+    member_index: Optional[dict[str, str]] = None,
+    committee_index: Optional[dict[str, str]] = None,
     name_matcher: Optional[NameMatcher] = None,
-) -> List[Report]:
+) -> list[Report]:
     """Parse one report text file into a list of Report objects, one per table."""
     text = file_path.read_text(encoding="utf-8", errors="replace")
     blocks = segment_tables(text, file_path.name)
@@ -304,8 +305,8 @@ def assemble_file(
 
 def assemble_directory(
     directory: Path,
-    member_index: Optional[Dict[str, str]] = None,
-    committee_index: Optional[Dict[str, str]] = None,
+    member_index: Optional[dict[str, str]] = None,
+    committee_index: Optional[dict[str, str]] = None,
     name_matcher: Optional[NameMatcher] = None,
 ) -> Iterator[Report]:
     """Parse every *.txt report file in a directory into Report objects, in filename order."""

@@ -3,7 +3,7 @@
 import re
 from dataclasses import dataclass, field
 from datetime import date
-from typing import List, Optional, Tuple
+from typing import Optional
 
 from ..models.report import SponsorType
 from .months import month_num
@@ -67,10 +67,10 @@ class HeaderInfo:
     sponsor: Sponsor
     period: Optional[Period]
     header_raw: str
-    flags: List[str] = field(default_factory=list)
+    flags: list[str] = field(default_factory=list)
 
 
-def parse_period(text: str) -> Tuple[Optional[Period], List[str]]:
+def parse_period(text: str) -> tuple[Optional[Period], list[str]]:
     """
     Parse the "EXPENDED BETWEEN <mon> <day> AND <mon> <day>, <year>" clause.
 
@@ -80,7 +80,7 @@ def parse_period(text: str) -> Tuple[Optional[Period], List[str]]:
     Returns:
         Tuple of (Period or None, list of flags)
     """
-    flags: List[str] = []
+    flags: list[str] = []
     match = PERIOD_RE.search(text)
     if not match:
         return None, ["PERIOD_UNPARSEABLE"]
@@ -136,7 +136,7 @@ def parse_period(text: str) -> Tuple[Optional[Period], List[str]]:
     return period, flags
 
 
-def classify_sponsor(sponsor_raw: str) -> Tuple[SponsorType, List[str]]:
+def classify_sponsor(sponsor_raw: str) -> tuple[SponsorType, list[str]]:
     """
     Classify a sponsor's type from its free-text name.
 
@@ -188,7 +188,7 @@ def parse_header(title_raw: str) -> HeaderInfo:
     Returns:
         HeaderInfo with sponsor, period, and any parsing flags
     """
-    flags: List[str] = []
+    flags: list[str] = []
 
     prefix_match = TITLE_PREFIX_RE.match(title_raw)
     amended = bool(prefix_match and prefix_match.group("amended"))

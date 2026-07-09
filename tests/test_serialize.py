@@ -2,9 +2,8 @@
 
 import csv
 import json
-from pathlib import Path
-
 from datetime import date
+from pathlib import Path
 
 from official_foreign_travel.models.report import Period, Report, Sponsor
 from official_foreign_travel.parsing.assemble import assemble_file, load_name_index
@@ -12,8 +11,8 @@ from official_foreign_travel.parsing.dedup import dedup_reports
 from official_foreign_travel.parsing.serialize import (
     to_json_dict,
     write_csv,
-    write_jsonl,
     write_json,
+    write_jsonl,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -97,7 +96,7 @@ class TestToJsonDict:
         assert len(payload["reports"]) == len(reports)
 
 
-class TestWriteJson(object):
+class TestWriteJson:
     def test_round_trips_through_disk(self, tmp_path):
         reports = load_reports("2019q1jan29.txt")
         out = tmp_path / "out.json"

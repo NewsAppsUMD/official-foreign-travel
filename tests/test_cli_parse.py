@@ -5,8 +5,6 @@ import json
 import sys
 from pathlib import Path
 
-import pytest
-
 from official_foreign_travel.cli.parse import main as parse_main
 
 FIXTURES = Path(__file__).parent / "fixtures"

@@ -5,12 +5,11 @@ files required) rather than the real congress-legislators dataset.
 """
 
 from datetime import date
-from pathlib import Path
 
 import pytest
 
 from official_foreign_travel.matchers.name_matcher import NameMatcher
-from official_foreign_travel.models.report import Costs, CostCell, CostGroup, TravelSegment
+from official_foreign_travel.models.report import CostCell, CostGroup, Costs, TravelSegment
 from official_foreign_travel.parsing.assemble import _match_member
 from official_foreign_travel.utils.config import Config
 

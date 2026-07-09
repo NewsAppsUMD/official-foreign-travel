@@ -1,17 +1,17 @@
 """Tests for Pydantic models."""
 
-import pytest
 from datetime import datetime
+
+import pytest
 from pydantic import ValidationError
 
+from official_foreign_travel.models.match import NameMatch, NameMatchResult
+from official_foreign_travel.models.member import MemberInput
 from official_foreign_travel.models.travel import (
     TravelRecord,
     TravelRecordInput,
     TravelRecordOutput,
 )
-from official_foreign_travel.models.member import MemberInput
-from official_foreign_travel.models.committee import Committee
-from official_foreign_travel.models.match import NameMatch, NameMatchResult
 
 
 class TestTravelRecordInput:
