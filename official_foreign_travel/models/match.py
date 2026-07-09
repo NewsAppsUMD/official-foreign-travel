@@ -1,7 +1,8 @@
 """Name matching result models."""
 
-from typing import List
-from pydantic import BaseModel, Field, ConfigDict
+from typing import Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class NameMatch(BaseModel):
@@ -25,13 +26,13 @@ class NameMatchResult(BaseModel):
     query_name: str = Field(..., description="Original query name")
     arrival_date: str = Field(..., description="Arrival date")
     departure_date: str = Field(..., description="Departure date")
-    matches: List[NameMatch] = Field(default_factory=list, description="Ranked matches")
-    top_match: NameMatch | None = Field(None, description="Best match")
+    matches: list[NameMatch] = Field(default_factory=list, description="Ranked matches")
+    top_match: Optional[NameMatch] = Field(None, description="Best match")
     is_confident: bool = Field(False, description="Whether match is confident")
     is_inconclusive: bool = Field(False, description="Whether match is inconclusive")
 
     @property
-    def best_bioguide_id(self) -> str | None:
+    def best_bioguide_id(self) -> Optional[str]:
         """Get the bioguide ID of the best match."""
         return self.top_match.bioguide_id if self.top_match else None
 
