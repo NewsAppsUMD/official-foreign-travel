@@ -90,6 +90,26 @@ class TestFullNamesFor:
         names = full_names_for({"first": "Tom", "last": "Lantos"})
         assert "Thomas Lantos" in names
 
+    def test_straightens_curly_apostrophes(self):
+        # official_full sometimes has a curly apostrophe where reports print
+        # a straight ASCII one.
+        names = full_names_for(
+            {
+                "first": "Robert",
+                "nickname": "Beto",
+                "last": "O'Rourke",
+                "official_full": "Beto O’Rourke",
+            }
+        )
+        assert "Beto O'Rourke" in names
+
+    def test_surname_only_variant(self):
+        # Reports sometimes print just "Hon. Jackson-Lee" -- safe to emit
+        # because shared surnames become ambiguous keys and get dropped.
+        names = full_names_for({"first": "Sheila", "last": "Jackson Lee"})
+        assert "Jackson Lee" in names
+        assert "Jackson-Lee" in names
+
     def test_comma_and_bare_suffix_forms(self):
         names = full_names_for(
             {"first": "George", "middle": "E.", "last": "Brown", "suffix": "Jr."}
@@ -147,6 +167,20 @@ class TestBuildMembersIndex:
         result = build_members_index([[person], [person]])
         assert result.rows["HON. JANE DOE"] == "A000001"
         assert result.dropped_ambiguous == []
+
+    def test_shared_surname_only_key_is_dropped_as_ambiguous(self):
+        result = build_members_index(
+            [
+                [
+                    self._person("A000001", "Peter", "King"),
+                    self._person("B000002", "Steve", "King"),
+                ]
+            ]
+        )
+        assert "HON. KING" not in result.rows
+        assert "HON. KING" in result.dropped_ambiguous
+        assert result.rows["HON. PETER KING"] == "A000001"
+        assert result.rows["HON. STEVE KING"] == "B000002"
 
     def test_person_with_no_usable_name_is_skipped_and_counted(self):
         person = {

@@ -124,6 +124,7 @@ def _match_member(
     honorific: Optional[str] = None,
     sponsor_code: Optional[str] = None,
     disambiguation_index: Optional[dict[tuple[str, str], str]] = None,
+    period: Optional[Period] = None,
 ) -> tuple[Optional[str], Optional[float], list[str]]:
     """
     Resolve a traveler's bioguide ID: exact match first, fuzzy fallback, else flagged blank.
@@ -138,6 +139,11 @@ def _match_member(
     `sponsor_code`/`disambiguation_index` resolve names that are ambiguous
     even with dates (two people with the same name serving simultaneously)
     via the report's sponsoring committee -- see load_disambiguation_index.
+
+    `period` (the report's filing quarter) stands in for the fuzzy matcher's
+    date window when none of the traveler's own segment dates parsed --
+    garbled date cells otherwise silently disable fuzzy matching for names
+    it would resolve confidently.
     """
     if not name:
         return None, None, []
@@ -176,18 +182,18 @@ def _match_member(
     first_dated = next(
         (s for s in segments if s.arrival_date is not None and s.departure_date is not None), None
     )
-    if (
-        first_dated is None
-        or first_dated.arrival_date is None
-        or first_dated.departure_date is None
-    ):
+    if first_dated is not None and first_dated.arrival_date and first_dated.departure_date:
+        window_start, window_end = first_dated.arrival_date, first_dated.departure_date
+    elif period is not None and period.start and period.end:
+        window_start, window_end = period.start, period.end
+    else:
         return None, None, ["MEMBER_UNMATCHED"]
 
     try:
         result = name_matcher.search_by_name(
             name,
-            first_dated.arrival_date.strftime("%m/%d/%Y"),
-            first_dated.departure_date.strftime("%m/%d/%Y"),
+            window_start.strftime("%m/%d/%Y"),
+            window_end.strftime("%m/%d/%Y"),
         )
     except Exception as e:
         logger.debug(f"Name matcher failed for {name!r}: {e}")
@@ -231,6 +237,15 @@ def assemble_table(
     sponsor_code = None
     if header_info.sponsor.type in ("committee", "commission"):
         sponsor_code = committee_index.get(header_info.sponsor.name.upper())
+
+    period = None
+    if header_info.period is not None:
+        period = Period(
+            start=header_info.period.start,
+            end=header_info.period.end,
+            year=header_info.period.year,
+            quarter=header_info.period.quarter,
+        )
 
     numbered_lines = list(enumerate(block.lines, start=1))
     candidate_lines = [line for line in block.lines if CANDIDATE_DATE_RE.search(line[:80])]
@@ -284,6 +299,7 @@ def assemble_table(
                 name_matcher,
                 sponsor_code=sponsor_code,
                 disambiguation_index=disambiguation_index,
+                period=period,
             )
             flags.extend(name_flags)
 
@@ -303,15 +319,6 @@ def assemble_table(
         code=sponsor_code,
         raw=header_info.sponsor.raw,
     )
-
-    period = None
-    if header_info.period is not None:
-        period = Period(
-            start=header_info.period.start,
-            end=header_info.period.end,
-            year=header_info.period.year,
-            quarter=header_info.period.quarter,
-        )
 
     report_id = f"{Path(block.source_file).stem}-{block.table_index:03d}"
 

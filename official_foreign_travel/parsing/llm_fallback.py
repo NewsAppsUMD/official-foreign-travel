@@ -222,6 +222,7 @@ def _match_members_in_place(
             honorific=traveler.honorific,
             sponsor_code=report.sponsor.code,
             disambiguation_index=disambiguation_index,
+            period=report.period,
         )
         traveler.bioguide_id = bioguide_id
         traveler.match_confidence = confidence

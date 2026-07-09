@@ -127,10 +127,15 @@ def _suffix_forms(body: str, suffix: str) -> set[str]:
 
 
 def _spelling_variants(names: set[str]) -> set[str]:
-    """Per-name spelling forms: collapsed consecutive initials and accents folded."""
+    """Per-name spelling forms: collapsed initials, accents folded, quotes straightened."""
     expanded: set[str] = set()
     for name in names:
         forms = {name, _INITIALS_GAP_RE.sub(r"\1.", name)}
+        # The YAML sometimes uses curly apostrophes ("Beto O’Rourke") where
+        # reports print straight ASCII ones -- and NFKD folding doesn't
+        # decompose curly quotes, it just leaves them (so the folded form
+        # drops nothing and still never matches the reports' spelling).
+        forms.update({f.replace("’", "'").replace("‘", "'") for f in forms})
         forms.update({_fold_accents(f) for f in forms})
         expanded.update(f for f in forms if f)
     return expanded
@@ -188,6 +193,12 @@ def full_names_for(name_field: dict[str, Any]) -> set[str]:
     if middle and not _INITIAL_RE.match(first):
         for last_variant in last_variants:
             bodies.add(f"{first[0]}. {_initialize(middle)} {last_variant}")
+
+    # Surname only ("Hon. Jackson-Lee", "Hon. Roybal-Allard"): safe because a
+    # surname shared by more than one person becomes an ambiguous key that
+    # build_members_index drops ("HON. KING" never matches anyone), while a
+    # unique surname can only mean that one person.
+    bodies.update(last_variants)
 
     names.update(bodies)
     if suffix:
