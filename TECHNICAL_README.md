@@ -157,13 +157,38 @@ oft-test-matching report_text/ issues.txt --cache my_cache.pickle
 
 ### Download Legislator Data
 
-Required for `--fuzzy-name-matching`:
+Fetches `legislators-{current,historical}.yaml` and `committees-{current,historical}.yaml`
+from [unitedstates/congress-legislators](https://github.com/unitedstates/congress-legislators)
+-- the legislator files are required for `--fuzzy-name-matching`; both are needed to
+regenerate `members.csv`/`committees.csv` (below).
 
 ```bash
 oft-download-legislators
 oft-download-legislators --output-dir data/
 oft-download-legislators --current-only
 ```
+
+### Regenerate `members.csv`/`committees.csv`
+
+`members.csv` and `committees.csv` are the exact-match lookups `oft-parse` tries before
+falling back to fuzzy name matching (members) or leaving a report's `sponsor.code` unset
+(committees, which has no fuzzy fallback at all). Committee names in particular change
+across Congresses (e.g. "International Relations" -> "Foreign Affairs"), so these files
+need periodic regeneration from the same congress-legislators source used above:
+
+```bash
+oft-download-legislators
+oft-generate-reference-data
+```
+
+This overwrites `members.csv`/`committees.csv` in the current directory (override with
+`--members-csv`/`--committees-csv`, and point at the 4 downloaded YAML files with
+`--legislators-current`/`--legislators-historical`/`--committees-current`/
+`--committees-historical` if they're not in the current directory). It reports how many
+people/committees were considered, plus any exact-name collisions it had to resolve --
+either by dropping an ambiguous name shared by two different people (never guesses), or
+by preferring whichever YAML file was listed first (current before historical) when two
+committees land on the same name.
 
 ### Python API
 

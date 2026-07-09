@@ -1,4 +1,4 @@
-"""CLI tool to download legislator YAML files."""
+"""CLI tool to download legislator and committee YAML files from congress-legislators."""
 
 import argparse
 import logging
@@ -11,9 +11,16 @@ from ..utils.logging import get_logger, setup_logger
 
 logger = get_logger(__name__)
 
-LEGISLATOR_URLS = {
-    "current": "https://raw.githubusercontent.com/unitedstates/congress-legislators/master/legislators-current.yaml",
-    "historical": "https://raw.githubusercontent.com/unitedstates/congress-legislators/master/legislators-historical.yaml",
+BASE_URL = "https://raw.githubusercontent.com/unitedstates/congress-legislators/master"
+FILES_BY_ERA = {
+    "current": {
+        "legislators-current.yaml": f"{BASE_URL}/legislators-current.yaml",
+        "committees-current.yaml": f"{BASE_URL}/committees-current.yaml",
+    },
+    "historical": {
+        "legislators-historical.yaml": f"{BASE_URL}/legislators-historical.yaml",
+        "committees-historical.yaml": f"{BASE_URL}/committees-historical.yaml",
+    },
 }
 
 
@@ -50,7 +57,10 @@ def download_file(url: str, destination: Path, timeout: int = 30) -> bool:
 
 def main():
     """Main CLI function."""
-    parser = argparse.ArgumentParser(description="Download legislator YAML files from GitHub")
+    parser = argparse.ArgumentParser(
+        description="Download legislator and committee YAML files from "
+        "unitedstates/congress-legislators"
+    )
     parser.add_argument(
         "--output-dir",
         type=Path,
@@ -60,12 +70,12 @@ def main():
     parser.add_argument(
         "--current-only",
         action="store_true",
-        help="Download only current legislators",
+        help="Download only current legislators/committees",
     )
     parser.add_argument(
         "--historical-only",
         action="store_true",
-        help="Download only historical legislators",
+        help="Download only historical legislators/committees",
     )
     parser.add_argument(
         "--timeout",
@@ -90,30 +100,31 @@ def main():
     args.output_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"Output directory: {args.output_dir.absolute()}")
 
-    # Determine which files to download
-    to_download = []
+    # Determine which eras to download
     if args.current_only:
-        to_download = ["current"]
+        eras = ["current"]
     elif args.historical_only:
-        to_download = ["historical"]
+        eras = ["historical"]
     else:
-        to_download = ["current", "historical"]
+        eras = ["current", "historical"]
+
+    files_to_download = {}
+    for era in eras:
+        files_to_download.update(FILES_BY_ERA[era])
 
     # Download files
     success_count = 0
-    for name in to_download:
-        url = LEGISLATOR_URLS[name]
-        filename = f"legislators-{name}.yaml"
+    for filename, url in files_to_download.items():
         destination = args.output_dir / filename
 
         if download_file(url, destination, timeout=args.timeout):
             success_count += 1
 
     # Summary
-    logger.info(f"Downloaded {success_count}/{len(to_download)} files successfully")
+    logger.info(f"Downloaded {success_count}/{len(files_to_download)} files successfully")
 
-    if success_count == len(to_download):
-        logger.info("All legislator data downloaded successfully!")
+    if success_count == len(files_to_download):
+        logger.info("All reference data downloaded successfully!")
         return 0
     else:
         logger.error("Some downloads failed. Please check the errors above.")
