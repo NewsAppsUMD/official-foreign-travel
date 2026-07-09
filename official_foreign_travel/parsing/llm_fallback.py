@@ -201,6 +201,7 @@ def _match_members_in_place(
     report: Report,
     member_index: Optional[dict[str, str]],
     name_matcher: Optional[NameMatcher],
+    disambiguation_index: Optional[dict[tuple[str, str], str]] = None,
 ) -> None:
     """
     Run the same exact/fuzzy member-matching pipeline over LLM-repaired travelers.
@@ -219,6 +220,8 @@ def _match_members_in_place(
             member_index,
             name_matcher,
             honorific=traveler.honorific,
+            sponsor_code=report.sponsor.code,
+            disambiguation_index=disambiguation_index,
         )
         traveler.bioguide_id = bioguide_id
         traveler.match_confidence = confidence
@@ -249,6 +252,7 @@ def apply_llm_fallback(
     fail_report_path: Optional[Path] = None,
     member_index: Optional[dict[str, str]] = None,
     name_matcher: Optional[NameMatcher] = None,
+    disambiguation_index: Optional[dict[tuple[str, str], str]] = None,
 ) -> list[Report]:
     """
     Repair failing reports via `repairer`, replacing them only if the result validates.
@@ -264,6 +268,8 @@ def apply_llm_fallback(
             on LLM-repaired travelers (same index used for the deterministic pass)
         name_matcher: Optional NameMatcher for fuzzy fallback on LLM-repaired
             travelers whose name doesn't exactly match `member_index`
+        disambiguation_index: Optional (uppercase name, sponsor code) -> bioguide ID
+            for names ambiguous even with dates (same index as the deterministic pass)
 
     Returns:
         The same list, with successfully-repaired reports replaced in place
@@ -285,7 +291,7 @@ def apply_llm_fallback(
             failures.append({"report_id": report.report_id, "reason": "repair_returned_none"})
             continue
 
-        _match_members_in_place(candidate, member_index, name_matcher)
+        _match_members_in_place(candidate, member_index, name_matcher, disambiguation_index)
 
         validate_report(candidate)
         if _passes_invariants(candidate):

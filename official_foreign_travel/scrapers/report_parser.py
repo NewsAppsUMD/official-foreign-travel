@@ -13,7 +13,12 @@ from typing import Optional
 
 from ..matchers.name_matcher import NameMatcher
 from ..models.report import Report
-from ..parsing.assemble import assemble_directory, assemble_file, load_name_index
+from ..parsing.assemble import (
+    assemble_directory,
+    assemble_file,
+    load_disambiguation_index,
+    load_name_index,
+)
 from ..parsing.dedup import dedup_reports
 from ..parsing.serialize import write_csv, write_json, write_jsonl
 from ..parsing.validate import validate_reports
@@ -38,15 +43,28 @@ class ReportParser:
         self.name_matcher = name_matcher
         self.member_index: dict[str, str] = load_name_index(self.config.members_csv)
         self.committee_index: dict[str, str] = load_name_index(self.config.committees_csv)
+        self.disambiguation_index: dict[tuple[str, str], str] = load_disambiguation_index(
+            self.config.member_disambiguation_csv
+        )
 
     def parse_file(self, file_path: Path) -> list[Report]:
         """Parse a single report file into Report objects, one per table."""
-        return assemble_file(file_path, self.member_index, self.committee_index, self.name_matcher)
+        return assemble_file(
+            file_path,
+            self.member_index,
+            self.committee_index,
+            self.name_matcher,
+            self.disambiguation_index,
+        )
 
     def parse_directory(self, directory: Path) -> Iterator[Report]:
         """Parse all *.txt report files in a directory, in filename order."""
         return assemble_directory(
-            directory, self.member_index, self.committee_index, self.name_matcher
+            directory,
+            self.member_index,
+            self.committee_index,
+            self.name_matcher,
+            self.disambiguation_index,
         )
 
     def parse_and_finalize(self, path: Path) -> list[Report]:

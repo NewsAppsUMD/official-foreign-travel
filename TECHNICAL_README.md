@@ -190,6 +190,17 @@ either by dropping an ambiguous name shared by two different people (never guess
 by preferring whichever YAML file was listed first (current before historical) when two
 committees land on the same name.
 
+A dropped-ambiguous name usually still resolves at parse time: `--fuzzy-name-matching`
+is date-aware, so two people who never served simultaneously (Payne Sr./Jr., the two
+Duncan Hunters) are separated by the trip dates. For the rare name shared by two people
+serving *at the same time* (Mike Rogers of Michigan and Mike Rogers of Alabama,
+2003-2015), `member_disambiguation.csv` -- a small hand-curated
+`(name, sponsor_code) -> bioguide_id` table -- resolves the traveler by which committee
+sponsored the trip, since the two sat on different committees. Matches made this way are
+tagged `MEMBER_DISAMBIGUATED_BY_COMMITTEE`. Extend that file by hand if a new
+simultaneous-name collision ever appears (the generator prints how many ambiguous names
+it dropped).
+
 ### Python API
 
 ```python

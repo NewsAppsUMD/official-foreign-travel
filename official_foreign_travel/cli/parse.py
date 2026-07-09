@@ -140,6 +140,7 @@ def main() -> int:
             fail_report_path=args.fail_report,
             member_index=report_parser.member_index,
             name_matcher=name_matcher,
+            disambiguation_index=report_parser.disambiguation_index,
         )
 
     if args.apply_corrections:

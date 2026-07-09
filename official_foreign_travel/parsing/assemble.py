@@ -55,6 +55,29 @@ def load_name_index(csv_path: Path) -> dict[str, str]:
     return index
 
 
+def load_disambiguation_index(csv_path: Path) -> dict[tuple[str, str], str]:
+    """
+    Load a hand-curated (uppercase name, sponsor code) -> bioguide ID lookup.
+
+    Resolves the names members.csv must drop as ambiguous because two
+    different people share them *simultaneously* (e.g. Mike Rogers of
+    Michigan and Mike Rogers of Alabama, both serving 2003-2015, where
+    neither exact matching nor date-aware fuzzy matching can choose): the
+    report's sponsoring committee still separates them, since each sat on
+    different committees. Optional -- an absent file just disables this.
+    """
+    index: dict[tuple[str, str], str] = {}
+    try:
+        with open(csv_path, encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                key = (row["name"].strip().upper(), row["sponsor_code"].strip().upper())
+                index[key] = row["bioguide_id"].strip()
+    except FileNotFoundError:
+        logger.debug(f"No member disambiguation CSV at {csv_path}")
+    return index
+
+
 def _to_pydantic_cell(cell: costs_module.CostCell) -> CostCell:
     return CostCell(
         amount=cell.amount,
@@ -99,6 +122,8 @@ def _match_member(
     member_index: dict[str, str],
     name_matcher: Optional[NameMatcher],
     honorific: Optional[str] = None,
+    sponsor_code: Optional[str] = None,
+    disambiguation_index: Optional[dict[tuple[str, str], str]] = None,
 ) -> tuple[Optional[str], Optional[float], list[str]]:
     """
     Resolve a traveler's bioguide ID: exact match first, fuzzy fallback, else flagged blank.
@@ -109,6 +134,10 @@ def _match_member(
     format directly, but an LLM repair pass may instead split them into two
     fields (name="Lois Capps", honorific="Hon."). Both must resolve to the
     same match.
+
+    `sponsor_code`/`disambiguation_index` resolve names that are ambiguous
+    even with dates (two people with the same name serving simultaneously)
+    via the report's sponsoring committee -- see load_disambiguation_index.
     """
     if not name:
         return None, None, []
@@ -123,6 +152,12 @@ def _match_member(
         exact = member_index.get(key)
         if exact:
             return exact, 1.0, []
+
+    if sponsor_code and disambiguation_index:
+        for key in lookup_keys:
+            curated = disambiguation_index.get((key, sponsor_code.upper()))
+            if curated:
+                return curated, 1.0, ["MEMBER_DISAMBIGUATED_BY_COMMITTEE"]
 
     if name_matcher is None:
         return None, None, ["MEMBER_UNMATCHED"]
@@ -170,6 +205,7 @@ def assemble_table(
     member_index: Optional[dict[str, str]] = None,
     committee_index: Optional[dict[str, str]] = None,
     name_matcher: Optional[NameMatcher] = None,
+    disambiguation_index: Optional[dict[tuple[str, str], str]] = None,
 ) -> Report:
     """
     Build a Report from one raw TableBlock.
@@ -179,6 +215,8 @@ def assemble_table(
         member_index: Uppercase traveler name -> bioguide ID, for exact matching
         committee_index: Uppercase committee name -> committee code
         name_matcher: Optional NameMatcher for fuzzy fallback matching
+        disambiguation_index: Optional (uppercase name, sponsor code) -> bioguide ID,
+            for names ambiguous even with dates -- see load_disambiguation_index
 
     Returns:
         A fully assembled Report. Nothing is dropped for looking wrong;
@@ -189,6 +227,10 @@ def assemble_table(
 
     header_info = parse_header(block.title_raw)
     flags: list[str] = list(header_info.flags)
+
+    sponsor_code = None
+    if header_info.sponsor.type in ("committee", "commission"):
+        sponsor_code = committee_index.get(header_info.sponsor.name.upper())
 
     numbered_lines = list(enumerate(block.lines, start=1))
     candidate_lines = [line for line in block.lines if CANDIDATE_DATE_RE.search(line[:80])]
@@ -236,7 +278,12 @@ def assemble_table(
                 )
 
             bioguide_id, match_confidence, name_flags = _match_member(
-                draft.name, segments_out, member_index, name_matcher
+                draft.name,
+                segments_out,
+                member_index,
+                name_matcher,
+                sponsor_code=sponsor_code,
+                disambiguation_index=disambiguation_index,
             )
             flags.extend(name_flags)
 
@@ -249,10 +296,6 @@ def assemble_table(
                     segments=segments_out,
                 )
             )
-
-    sponsor_code = None
-    if header_info.sponsor.type in ("committee", "commission"):
-        sponsor_code = committee_index.get(header_info.sponsor.name.upper())
 
     sponsor = Sponsor(
         type=header_info.sponsor.type,
@@ -296,11 +339,15 @@ def assemble_file(
     member_index: Optional[dict[str, str]] = None,
     committee_index: Optional[dict[str, str]] = None,
     name_matcher: Optional[NameMatcher] = None,
+    disambiguation_index: Optional[dict[tuple[str, str], str]] = None,
 ) -> list[Report]:
     """Parse one report text file into a list of Report objects, one per table."""
     text = file_path.read_text(encoding="utf-8", errors="replace")
     blocks = segment_tables(text, file_path.name)
-    return [assemble_table(b, member_index, committee_index, name_matcher) for b in blocks]
+    return [
+        assemble_table(b, member_index, committee_index, name_matcher, disambiguation_index)
+        for b in blocks
+    ]
 
 
 def assemble_directory(
@@ -308,7 +355,10 @@ def assemble_directory(
     member_index: Optional[dict[str, str]] = None,
     committee_index: Optional[dict[str, str]] = None,
     name_matcher: Optional[NameMatcher] = None,
+    disambiguation_index: Optional[dict[tuple[str, str], str]] = None,
 ) -> Iterator[Report]:
     """Parse every *.txt report file in a directory into Report objects, in filename order."""
     for file_path in sorted(directory.glob("*.txt")):
-        yield from assemble_file(file_path, member_index, committee_index, name_matcher)
+        yield from assemble_file(
+            file_path, member_index, committee_index, name_matcher, disambiguation_index
+        )

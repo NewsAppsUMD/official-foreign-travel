@@ -27,6 +27,10 @@ class Config(BaseSettings):
     # CSV files
     members_csv: Path = Field(default=Path("members.csv"), description="Members CSV file")
     committees_csv: Path = Field(default=Path("committees.csv"), description="Committees CSV file")
+    member_disambiguation_csv: Path = Field(
+        default=Path("member_disambiguation.csv"),
+        description="Hand-curated (name, sponsor code) -> bioguide ID disambiguation CSV",
+    )
 
     # YAML files (from congress-legislators repo)
     legislators_current_yaml: Path = Field(

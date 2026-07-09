@@ -2,12 +2,18 @@
 
 from pathlib import Path
 
-from official_foreign_travel.parsing.assemble import assemble_file, load_name_index
+from official_foreign_travel.parsing.assemble import (
+    _match_member,
+    assemble_file,
+    load_disambiguation_index,
+    load_name_index,
+)
 from official_foreign_travel.parsing.validate import validate_reports
 
 FIXTURES = Path(__file__).parent / "fixtures"
 MEMBERS_CSV = Path(__file__).parent.parent / "members.csv"
 COMMITTEES_CSV = Path(__file__).parent.parent / "committees.csv"
+DISAMBIGUATION_CSV = Path(__file__).parent.parent / "member_disambiguation.csv"
 
 
 class TestAssembleFile:
@@ -61,6 +67,57 @@ class TestAssembleFile:
         assert isinstance(
             payload["travelers"][0]["segments"][0]["costs"]["total"]["us_dollar"], dict
         )
+
+
+class TestMemberDisambiguation:
+    """(name, sponsor committee) resolution for names ambiguous even with dates."""
+
+    def test_load_disambiguation_index_reads_real_file(self):
+        index = load_disambiguation_index(DISAMBIGUATION_CSV)
+        assert index[("HON. MIKE ROGERS", "HLIG")] == "R000572"  # Michigan, Intelligence
+        assert index[("HON. MIKE ROGERS", "HSAS")] == "R000575"  # Alabama, Armed Services
+
+    def test_load_disambiguation_index_missing_file_is_empty(self, tmp_path):
+        assert load_disambiguation_index(tmp_path / "nope.csv") == {}
+
+    def test_ambiguous_name_resolved_by_sponsor_committee(self):
+        index = {("HON. MIKE ROGERS", "HLIG"): "R000572"}
+        bioguide, confidence, flags = _match_member(
+            "Hon. Mike Rogers", [], {}, None, sponsor_code="HLIG", disambiguation_index=index
+        )
+        assert bioguide == "R000572"
+        assert confidence == 1.0
+        assert "MEMBER_DISAMBIGUATED_BY_COMMITTEE" in flags
+
+    def test_no_sponsor_code_stays_unmatched(self):
+        index = {("HON. MIKE ROGERS", "HLIG"): "R000572"}
+        bioguide, _, flags = _match_member(
+            "Hon. Mike Rogers", [], {}, None, sponsor_code=None, disambiguation_index=index
+        )
+        assert bioguide is None
+        assert "MEMBER_UNMATCHED" in flags
+
+    def test_unlisted_sponsor_code_stays_unmatched(self):
+        index = {("HON. MIKE ROGERS", "HLIG"): "R000572"}
+        bioguide, _, flags = _match_member(
+            "Hon. Mike Rogers", [], {}, None, sponsor_code="HSWM", disambiguation_index=index
+        )
+        assert bioguide is None
+        assert "MEMBER_UNMATCHED" in flags
+
+    def test_exact_match_takes_precedence_over_disambiguation(self):
+        member_index = {"HON. JANE DOE": "D000001"}
+        index = {("HON. JANE DOE", "HLIG"): "WRONG"}
+        bioguide, confidence, flags = _match_member(
+            "Hon. Jane Doe",
+            [],
+            member_index,
+            None,
+            sponsor_code="HLIG",
+            disambiguation_index=index,
+        )
+        assert bioguide == "D000001"
+        assert flags == []
 
 
 class TestValidateIntegration:
