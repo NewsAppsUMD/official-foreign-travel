@@ -93,3 +93,24 @@ class TestValidateReport:
         r = report([], committee_total=None)
         validate_report(r)
         assert "MISSING_COMMITTEE_TOTAL" not in r.flags
+
+
+class TestRowTotalMissing:
+    def test_components_without_total_are_flagged(self):
+        seg = segment(costs(per_diem="100.00", total=None))
+        r = report([Traveler(name="A", segments=[seg])])
+        validate_report(r)
+        assert "ROW_TOTAL_MISSING" in seg.flags
+
+    def test_fully_empty_cost_row_is_not_flagged(self):
+        seg = segment(costs(per_diem=None, total=None))
+        r = report([Traveler(name="A", segments=[seg])])
+        validate_report(r)
+        assert "ROW_TOTAL_MISSING" not in seg.flags
+
+    def test_flag_is_idempotent_across_revalidation(self):
+        seg = segment(costs(per_diem="100.00", total=None))
+        r = report([Traveler(name="A", segments=[seg])])
+        validate_report(r)
+        validate_report(r)
+        assert seg.flags.count("ROW_TOTAL_MISSING") == 1

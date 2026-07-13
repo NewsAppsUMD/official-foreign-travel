@@ -37,6 +37,8 @@ def validate_report(report: Report, tolerance: Decimal = DEFAULT_TOLERANCE) -> R
     for segment in all_segments:
         if "ROW_SUM_MISMATCH" in segment.flags:
             segment.flags.remove("ROW_SUM_MISMATCH")
+        if "ROW_TOTAL_MISSING" in segment.flags:
+            segment.flags.remove("ROW_TOTAL_MISSING")
     report.flags = [
         f for f in report.flags if f not in ("TABLE_SUM_MISMATCH", "MISSING_COMMITTEE_TOTAL")
     ]
@@ -44,6 +46,8 @@ def validate_report(report: Report, tolerance: Decimal = DEFAULT_TOLERANCE) -> R
     for segment in all_segments:
         declared_total = segment.costs.total.us_dollar.amount
         if declared_total is None:
+            if _group_total(segment.costs) > 0:
+                segment.flags.append("ROW_TOTAL_MISSING")
             continue
         computed = _group_total(segment.costs)
         if abs(computed - declared_total) > tolerance:
