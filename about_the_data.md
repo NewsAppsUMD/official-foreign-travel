@@ -41,9 +41,10 @@ structured data:
    US-dollar-equivalent amount) are pulled out, with wrapped country lists and supplemental
    cost rows ("Commercial airfare," "Delegation Expenses") merged in rather than dropped.
 5. **Validation**: each row's costs are checked against its own declared total, and each
-   table's rows are checked against its declared committee total. Mismatches are recorded
-   as flags, not corrected or hidden -- some of them are genuine errors in the original
-   documents.
+   table's rows are checked against its declared committee total. Rows that have cost
+   components but no declared total are flagged `ROW_TOTAL_MISSING` (the failure mode that
+   once let a layout bug hide from the sum check). Mismatches are recorded as flags, not
+   corrected or hidden -- some of them are genuine errors in the original documents.
 6. **Deduplication**: reports for the same sponsor and period are treated as the same
    underlying report (keeping the latest publication, per the amended-report caveat above)
    only when one is explicitly marked amended or their traveler rosters substantially

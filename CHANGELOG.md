@@ -1,5 +1,94 @@
 # Changelog
 
+## [3.0.1] - 2026-07-13
+
+### Fixed - Layout boundary truncation and column collision
+
+The v3.0.0 layout refiner snapped each column boundary to the nearest
+position where ≥60% of data rows *started a token*. That criterion is
+wrong for right-justified numeric columns, where the column where a
+token starts shifts with digit count: a majority-vote position lands at
+the *narrowest* width and silently truncates wider values, and when no
+position wins a majority (mixed widths + dot-filled empty cells split
+the vote) the search widened until it landed on a *neighboring column's*
+boundary, producing a zero-width column and a doubled neighbor.
+
+**Measured blast radius** (full corpus, before this fix):
+
+- 571 of 2,700 tables (21.1%) had at least one collided cost-column
+  boundary.
+- Cost-population rates across 55,992 segments: per_diem 74.3%,
+  transportation 18.0%, other 6.2%, total 60.2%. The transportation and
+  total gaps were dominated by this bug.
+- The failure was invisible to the review queue: collided tables still
+  reported `layout_confidence: 1.0`, and `TABLE_SUM_MISMATCH` never
+  fired because it requires a non-null `total` -- exactly what the bug
+  nulled.
+
+**The fix** replaces the token-start voting with token-cut avoidance:
+refine each boundary to the nearest position that cuts through no data
+row's token. Because empty cells in these tables are dot-filled to full
+width, the only positions that split nothing in any row are the true
+inter-column gutters, so a zero-cuts match is overwhelmingly a correct
+gutter position. A second pass tolerates cuts in up to 10% of rows for
+rare over-wide values that bleed through every gutter, rather than
+giving up and returning the unrefined guess.
+
+**Defense in depth:**
+
+- A post-refinement collision guard in `detect_layout` caps
+  `layout_confidence` to 0.5 when two refined boundaries land on the
+  same column, routing the table to the review queue (and the
+  `--llm-fallback` path) instead of reporting `1.0`.
+- A new `ROW_TOTAL_MISSING` segment flag fires when a segment has
+  component amounts (per_diem / transportation / other) but no declared
+  total -- the exact shape that let this bug hide, because the sum
+  check used to silently skip null-total segments.
+
+**Measured result after the fix** (same corpus, 55,992 segments -- no
+drop):
+
+| category        | before | after |
+|-----------------|--------|-------|
+| per_diem        | 74.3%  | 90.8% |
+| transportation  | 18.0%  | 24.4% |
+| other           | 6.2%   | 9.1%  |
+| total           | 60.2%  | 82.2% |
+
+Collided cost-column boundaries in the corpus fell from 571/2700 to
+2/2700, and both residuals are caught by the collision guard
+(`confidence = 0.5`).
+
+**Previously shipped numbers were wrong.** Cost figures parsed by
+v3.0.0 were affected on roughly 21% of tables: right-justified amounts
+were truncated to their trailing digits (e.g. `2,079.00` parsed as
+`79.00`), and the transportation and total columns were swallowed
+entirely on collided tables. Downstream outputs (`travel_reports.json`,
+`travel_report_data.csv`, any derivative analysis) regenerated with
+v3.0.0 should be **regenerated with v3.0.1** -- the affected fields are
+not safe to use as-is. The `corrections.json` review queue entries
+whose underlying reports now parse differently are still valid
+(report_ids are stable, and corrections apply on top of the parsed
+values), but a reviewer who "confirmed OK" a table with silently-null
+transportation may want to revisit that confirmation.
+
+### Added
+
+- `ROW_TOTAL_MISSING` segment flag (set when a segment has cost
+  components but no declared total). Surfaces the failure mode that let
+  the boundary bug hide from the row-sum check.
+
+### Changed
+
+- `official_foreign_travel/parsing/layout.py`: `_refine_boundary` now
+  snaps to the nearest position that cuts no row's token (was: nearest
+  position where ≥60% of rows start a token). `_is_token_start` is
+  replaced by `_cuts_token`. `detect_layout` caps confidence to 0.5
+  when refined positions are not unique.
+- `official_foreign_travel/parsing/validate.py`: `validate_report`
+  raises `ROW_TOTAL_MISSING` on segments with components but no total,
+  and clears it on re-validation (idempotent).
+
 ## [3.0.0] - 2026-07-06
 
 ### Rebuilt Parser - Layout-Aware Parsing, Costs, JSON
