@@ -215,6 +215,13 @@ def detect_layout(block_lines: list[str], data_lines: Sequence[str]) -> Optional
     if refinable:
         confidence += 0.2 * (matched / refinable)
 
+    collided = len(set(positions)) < len(positions)
+    if collided:
+        # Two boundaries on the same column means a zero-width column and a
+        # doubled neighbor -- extraction from this layout is not trustworthy,
+        # so force it under the review/LLM-fallback threshold.
+        confidence = min(confidence, 0.5)
+
     fingerprint = tuple(positions)
 
     return TableLayout(

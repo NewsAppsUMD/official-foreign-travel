@@ -143,3 +143,27 @@ class TestRefineBoundaryRightJustified:
 
     def test_no_data_rows_returns_guess_unrefined(self):
         assert _refine_boundary(13, []) == (13, False)
+
+
+class TestBoundaryCollisions:
+    def test_collided_boundaries_cap_confidence_below_threshold(self):
+        # Force a collision by monkeypatching refinement to a constant.
+        import official_foreign_travel.parsing.layout as layout_module
+
+        original = layout_module._refine_boundary
+        layout_module._refine_boundary = lambda guess, rows: (100, True)
+        try:
+            header = [
+                "   Name of Member or employee              Country     "
+                "Foreign  equivalent  Foreign  equivalent  Foreign  equivalent  Foreign  equivalent",
+                "                            Arrival  Departure",
+                "-----------------------------------------------------------------",
+            ]
+            rows = ["Mr. A....     1/1   1/2  France...  ..  1.00  ..  2.00  ..  3.00  ..  6.00"]
+            result = layout_module.detect_layout(header + rows, rows)
+            assert result is not None
+            from official_foreign_travel.parsing.assemble import LOW_CONFIDENCE_THRESHOLD
+
+            assert result.confidence < LOW_CONFIDENCE_THRESHOLD
+        finally:
+            layout_module._refine_boundary = original
