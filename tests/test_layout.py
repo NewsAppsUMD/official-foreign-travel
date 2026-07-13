@@ -8,6 +8,7 @@ import pytest
 from official_foreign_travel.parsing.layout import (
     ColumnSpan,
     _cuts_token,
+    _merge_nearby,
     _refine_boundary,
     detect_layout,
 )
@@ -117,6 +118,22 @@ def test_escaped_html_markup_tables_have_no_collided_boundaries(filename):
     assert layout.confidence >= 0.8
 
 
+def test_1998_truncated_header_finds_all_cost_columns():
+    """1998-era files have a header label line truncated before the last
+    "equivalent" label, so the primary Foreign/equivalent matches fall short
+    of the 8 cost columns. The fallback to the "currency"/"or U.S." labels
+    on subsequent header lines (which sit at the same columns) recovers all 8
+    boundaries and reaches full confidence."""
+    blocks = segment_tables(load("1998q2may05_government_reform.txt"), "1998q2may05_government_reform.txt")
+    assert len(blocks) == 1
+    layout = detect_layout(blocks[0].lines, data_lines_for(blocks[0]))
+    assert layout is not None
+    starts = [span.start for span in layout.cost_columns]
+    assert len(starts) == 8
+    assert len(set(starts)) == len(starts), f"collided boundaries: {starts}"
+    assert layout.confidence >= 0.8
+
+
 class TestCutsToken:
     def test_inside_a_token_cuts(self):
         assert _cuts_token("  2,079.00", 5) is True
@@ -131,6 +148,22 @@ class TestCutsToken:
     def test_line_edges_do_not_cut(self):
         assert _cuts_token("abc", 0) is False
         assert _cuts_token("abc", 3) is False  # past end of a short row
+
+
+class TestMergeNearby:
+    def test_dedupes_positions_within_tolerance(self):
+        # "equivalent" and the "or U.S." label beneath it start 1 char apart
+        # in some 1998-era headers; merging keeps them as one boundary.
+        assert _merge_nearby([100, 101, 110, 120]) == [100, 110, 120]
+
+    def test_keeps_positions_outside_tolerance(self):
+        assert _merge_nearby([10, 13, 20], tolerance=2) == [10, 13, 20]
+
+    def test_unsorted_input_is_sorted(self):
+        assert _merge_nearby([120, 100, 101, 110]) == [100, 110, 120]
+
+    def test_empty_input(self):
+        assert _merge_nearby([]) == []
 
 
 class TestRefineBoundaryRightJustified:

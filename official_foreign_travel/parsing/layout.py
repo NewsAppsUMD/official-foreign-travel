@@ -22,10 +22,25 @@ DEPARTURE_LABEL_RE = re.compile(r"\bDepart\w*", re.IGNORECASE)
 COUNTRY_LABEL_RE = re.compile(r"\bCountry\b", re.IGNORECASE)
 FOREIGN_LABEL_RE = re.compile(r"\bForeign\b", re.IGNORECASE)
 EQUIVALENT_LABEL_RE = re.compile(r"\bequivalent\b", re.IGNORECASE)
+CURRENCY_LABEL_RE = re.compile(r"\bcurrency\b", re.IGNORECASE)
+OR_US_LABEL_RE = re.compile(r"\bor\s+U\.S", re.IGNORECASE)
 RULE_RE = re.compile(r"^-{10,}")
 
 REFINE_WINDOW = 20
 NUM_COST_COLUMNS = 8
+
+
+def _merge_nearby(positions: list[int], tolerance: int = 2) -> list[int]:
+    """Deduplicate positions that fall within `tolerance` of each other.
+
+    "equivalent" and the "or U.S." label beneath it start 1 char apart
+    in some 1998-era headers; merging keeps them as one column boundary.
+    """
+    merged: list[int] = []
+    for pos in sorted(positions):
+        if not merged or pos - merged[-1] > tolerance:
+            merged.append(pos)
+    return merged
 
 
 @dataclass(frozen=True)
@@ -77,6 +92,8 @@ def _label_positions(window: list[str]) -> Optional[dict]:
     name_pos = arrival_pos = departure_pos = country_pos = None
     foreign_positions: list[int] = []
     equivalent_positions: list[int] = []
+    currency_positions: list[int] = []
+    or_us_positions: list[int] = []
 
     for line in window:
         name_match = NAME_LABEL_RE.search(line)
@@ -100,11 +117,23 @@ def _label_positions(window: list[str]) -> Optional[dict]:
 
         foreign_positions.extend(m.start() for m in FOREIGN_LABEL_RE.finditer(line))
         equivalent_positions.extend(m.start() for m in EQUIVALENT_LABEL_RE.finditer(line))
+        currency_positions.extend(m.start() for m in CURRENCY_LABEL_RE.finditer(line))
+        or_us_positions.extend(m.start() for m in OR_US_LABEL_RE.finditer(line))
 
     if name_pos is None or arrival_pos is None or departure_pos is None or country_pos is None:
         return None
 
-    cost_positions = sorted(set(foreign_positions) | set(equivalent_positions))
+    all_cost_labels = foreign_positions + equivalent_positions
+    cost_positions = _merge_nearby(all_cost_labels)
+    if len(cost_positions) < NUM_COST_COLUMNS:
+        # The header's label line is sometimes truncated (1998-era files),
+        # leaving fewer than 8 Foreign/equivalent matches. The "currency"
+        # and "or U.S." labels on subsequent header lines sit at the same
+        # columns -- fall back to them only when the primary labels are
+        # incomplete, so a duplicated label in a complete header can't
+        # introduce a spurious position.
+        all_cost_labels = all_cost_labels + currency_positions + or_us_positions
+        cost_positions = _merge_nearby(all_cost_labels)
 
     return {
         "name": name_pos,
