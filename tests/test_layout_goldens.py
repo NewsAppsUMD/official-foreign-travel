@@ -10,17 +10,11 @@ Values below are read directly from the raw fixture text.
 from decimal import Decimal
 from pathlib import Path
 
-import pytest
-
 from official_foreign_travel.parsing.assemble import assemble_file
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
-@pytest.mark.xfail(
-    reason="layout boundary collision bug -- fixed in next commit",
-    strict=True,
-)
 class TestEnergyCommerce1994Goldens:
     def _report(self):
         reports = assemble_file(FIXTURES / "1994q1feb10_energy.txt")

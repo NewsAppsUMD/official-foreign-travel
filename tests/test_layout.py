@@ -5,7 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from official_foreign_travel.parsing.layout import ColumnSpan, detect_layout
+from official_foreign_travel.parsing.layout import (
+    ColumnSpan,
+    _cuts_token,
+    _refine_boundary,
+    detect_layout,
+)
 from official_foreign_travel.parsing.segmenter import segment_tables
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -90,3 +95,51 @@ def test_most_tables_in_each_fixture_get_a_confident_layout(filename):
     layouts = [detect_layout(b.lines, data_lines_for(b)) for b in blocks]
     confident = [layout for layout in layouts if layout is not None and layout.confidence >= 0.7]
     assert len(confident) / len(blocks) > 0.85
+
+
+class TestCutsToken:
+    def test_inside_a_token_cuts(self):
+        assert _cuts_token("  2,079.00", 5) is True
+
+    def test_at_token_start_does_not_cut(self):
+        # slicing exactly at a token's first character keeps it whole
+        assert _cuts_token("  2,079.00", 2) is False
+
+    def test_inside_whitespace_does_not_cut(self):
+        assert _cuts_token("ab    cd", 4) is False
+
+    def test_line_edges_do_not_cut(self):
+        assert _cuts_token("abc", 0) is False
+        assert _cuts_token("abc", 3) is False  # past end of a short row
+
+
+class TestRefineBoundaryRightJustified:
+    # Two cost columns, right-justified amounts of mixed width, dot-filled
+    # empties -- the shape that broke the old token-start criterion.
+    #          0         1         2         3
+    #          0123456789012345678901234567890123456
+    ROWS = [
+        "..........    2,079.00  ..........",
+        "..........      467.00  ..........",
+        "..........      398.00  ..........",
+        "..........    3,049.45  ..........",
+    ]
+
+    def test_boundary_lands_in_the_gutter_not_at_majority_token_start(self):
+        # Label guess 13 sits over the amount column. The widest amount
+        # starts at col 14; the narrow ones at col 16. The old criterion
+        # snapped to 16 (majority) and truncated "2,079.00" to "79.00".
+        pos, ok = _refine_boundary(13, self.ROWS)
+        assert ok
+        assert pos <= 14, f"boundary {pos} would truncate the widest amount"
+        assert pos >= 11, f"boundary {pos} cuts into the previous column"
+
+    def test_boundary_never_steals_a_neighboring_column(self):
+        # Guess 20 is late (right of every amount's start). The nearest
+        # non-cutting position is the gutter at 24-26, NOT a distant column.
+        pos, ok = _refine_boundary(20, self.ROWS)
+        assert ok
+        assert 22 <= pos <= 26, f"boundary {pos} wandered out of the adjacent gutter"
+
+    def test_no_data_rows_returns_guess_unrefined(self):
+        assert _refine_boundary(13, []) == (13, False)

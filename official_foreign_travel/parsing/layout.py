@@ -115,47 +115,45 @@ def _label_positions(window: list[str]) -> Optional[dict]:
     }
 
 
-def _is_token_start(line: str, col: int) -> bool:
-    """
-    Whether column `col` in `line` starts a real column, not just a word gap.
-
-    Requires 2+ preceding spaces: single spaces separate words within a cell
-    (e.g. "Germany, Rwanda"), while genuine column boundaries in these
-    fixed-width tables are always separated by 2+ spaces.
-    """
-    if col <= 1 or col >= len(line):
+def _cuts_token(line: str, col: int) -> bool:
+    """Whether slicing at `col` would split a token in this row in two."""
+    if col <= 0 or col >= len(line):
         return False
-    return line[col] != " " and line[col - 1] == " " and line[col - 2] == " "
+    return line[col] != " " and line[col - 1] != " "
 
 
 def _refine_boundary(guess: int, data_lines: Sequence[str]) -> tuple[int, bool]:
     """
-    Snap a label-derived boundary guess to the nearest real token start in data rows.
+    Snap a label-derived boundary guess to the nearest position that cuts
+    through no data row's token.
 
-    Args:
-        guess: Label-derived column position
-        data_lines: Sample of actual data rows to check against
+    Right-justified numeric columns make "where tokens start" the wrong
+    criterion: starts shift with digit count, so a majority-vote position
+    truncates the wider values, and when no position wins a majority the
+    search used to wander onto a neighboring column's boundary entirely.
+    Because empty cells are dot-filled to full width, the only positions
+    that split nothing in any row are the true inter-column gutters --
+    slicing anywhere inside a gutter is correct (leading whitespace is
+    stripped downstream, and the no-cut guarantee means the previous
+    column's content always ends before the boundary).
 
-    Returns:
-        Tuple of (refined position, whether refinement found a match)
+    A strict zero-cuts pass runs first; if nothing within the window
+    qualifies (e.g. a rare over-wide value bleeds through every gutter), a
+    second pass tolerates cuts in up to 10% of rows rather than giving up.
     """
     if not data_lines:
         return guess, False
 
-    best_offset = None
-    for offset in range(0, REFINE_WINDOW + 1):
-        for candidate in ({guess + offset, guess - offset} if offset else {guess}):
-            if candidate < 0:
-                continue
-            hits = sum(1 for line in data_lines if _is_token_start(line, candidate))
-            if hits >= max(1, int(0.6 * len(data_lines))):
-                if best_offset is None or offset < best_offset[1]:
-                    best_offset = (candidate, offset)
-        if best_offset is not None:
-            break
+    for max_cuts in (0, len(data_lines) // 10):
+        for offset in range(0, REFINE_WINDOW + 1):
+            candidates = [guess - offset, guess + offset] if offset else [guess]
+            for candidate in candidates:
+                if candidate < 1:
+                    continue
+                cuts = sum(1 for line in data_lines if _cuts_token(line, candidate))
+                if cuts <= max_cuts:
+                    return candidate, True
 
-    if best_offset is not None:
-        return best_offset[0], True
     return guess, False
 
 
