@@ -56,8 +56,13 @@ drop):
 | total           | 60.2%  | 82.2% |
 
 Collided cost-column boundaries in the corpus fell from 571/2700 to
-2/2700, and both residuals are caught by the collision guard
-(`confidence = 0.5`).
+0/2700. The 2 residuals that remained after the boundary-criterion fix
+were caused by HTML-escaped `&lt;SUP&gt;` markup in cost cells (in
+`1997q3sep23.txt` and `2003q2apr30.txt`) that `strip_html_tags` didn't
+catch — the escaped entities shifted column positions in affected rows,
+destroying the aligned gutters the refiner relies on. `strip_html_tags`
+now strips `&lt;...&gt;` escaped entities alongside raw `<...>` tags,
+eliminating both residuals.
 
 **Previously shipped numbers were wrong.** Cost figures parsed by
 v3.0.0 were affected on roughly 21% of tables: right-justified amounts
@@ -88,6 +93,10 @@ transportation may want to revisit that confirmation.
 - `official_foreign_travel/parsing/validate.py`: `validate_report`
   raises `ROW_TOTAL_MISSING` on segments with components but no total,
   and clears it on re-validation (idempotent).
+- `official_foreign_travel/utils/text.py`: `strip_html_tags` now strips
+  HTML-escaped `&lt;...&gt;` entities alongside raw `<...>` tags. Two
+  source files had escaped `&lt;SUP&gt;` markup in cost cells that
+  shifted the fixed-width grid and collided layout boundaries.
 
 ## [3.0.0] - 2026-07-06
 

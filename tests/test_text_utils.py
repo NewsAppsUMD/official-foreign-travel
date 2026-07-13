@@ -1,6 +1,6 @@
 """Tests for text utility functions."""
 
-from official_foreign_travel.utils.text import lower_name, normalize_name
+from official_foreign_travel.utils.text import lower_name, normalize_name, strip_html_tags
 
 
 class TestLowerName:
@@ -60,3 +60,25 @@ class TestNormalizeName:
         result = normalize_name("John123Smith", charset=charset)
         # Numbers should be filtered out
         assert "123" not in result
+
+
+class TestStripHtmlTags:
+    def test_strips_raw_strong_tags(self):
+        assert strip_html_tags("OFFICIAL <strong>FOREIGN</strong> TRAVEL") == "OFFICIAL FOREIGN TRAVEL"
+
+    def test_strips_raw_sup_tags(self):
+        assert strip_html_tags("1,930.00  <SUP>(3)</SUP>  ...........") == "1,930.00  (3)  ..........."
+
+    def test_strips_escaped_sup_tags(self):
+        assert strip_html_tags("1,930.00  &lt;SUP&gt;(3)&lt;/SUP&gt;  ...........") == "1,930.00  (3)  ..........."
+
+    def test_strips_escaped_strong_tags(self):
+        assert strip_html_tags("OFFICIAL &lt;strong&gt;FOREIGN&lt;/strong&gt; TRAVEL") == "OFFICIAL FOREIGN TRAVEL"
+
+    def test_preserves_content_between_escaped_tags(self):
+        raw = "...........  &lt;SUP&gt;(3)&lt;/SUP&gt;  ..........."
+        assert strip_html_tags(raw) == "...........  (3)  ..........."
+
+    def test_strips_mixed_raw_and_escaped_tags(self):
+        raw = "&lt;strong&gt;OFFICIAL&lt;/strong&gt; <strong>FOREIGN</strong> TRAVEL"
+        assert strip_html_tags(raw) == "OFFICIAL FOREIGN TRAVEL"

@@ -4,7 +4,7 @@ import re
 import unicodedata
 from typing import Optional
 
-_TAG_RE = re.compile(r"<[^>]{1,40}>")
+_TAG_RE = re.compile(r"<[^>]{1,40}>|&lt;[^&]{1,40}&gt;")
 
 
 def strip_html_tags(text: str) -> str:

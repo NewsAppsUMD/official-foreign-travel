@@ -97,6 +97,26 @@ def test_most_tables_in_each_fixture_get_a_confident_layout(filename):
     assert len(confident) / len(blocks) > 0.85
 
 
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "1997q3sep23_transportation.txt",
+        "2003q2apr30_intelligence.txt",
+    ],
+)
+def test_escaped_html_markup_tables_have_no_collided_boundaries(filename):
+    """Two tables had HTML-escaped &lt;SUP&gt; markup in cost cells that shifted
+    column positions and collided boundaries. After strip_html_tags learned to
+    strip escaped entities, these tables parse with distinct boundaries."""
+    blocks = segment_tables(load(filename), filename)
+    block = blocks[0]
+    layout = detect_layout(block.lines, data_lines_for(block))
+    assert layout is not None
+    starts = [span.start for span in layout.cost_columns]
+    assert len(set(starts)) == len(starts), f"collided boundaries: {starts}"
+    assert layout.confidence >= 0.8
+
+
 class TestCutsToken:
     def test_inside_a_token_cuts(self):
         assert _cuts_token("  2,079.00", 5) is True
