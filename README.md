@@ -38,8 +38,9 @@ uv run oft-review report_text/ output.json --corrections corrections.json
 
 Then open http://127.0.0.1:8765/ in a browser:
 
-- The **list view** shows every flagged report, filterable by review status and flag
-  type, sortable by column, with a progress counter as you work through the queue.
+- The **list view** defaults to the flagged review queue, with a "Flagged only" toggle
+  to browse every parsed report. It's filterable by review status and flag type,
+  sortable by column, with a progress counter as you work through the queue.
 - Clicking a report opens the **detail view**: the original fixed-width source text on
   the left, an editable form of every extracted field on the right. Clicking a
   segment's heading highlights the source lines it was parsed from.

@@ -6,7 +6,7 @@
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-  <h1>Flagged Reports</h1>
+  <h1>Report Review</h1>
   <div id="progress"></div>
   <select id="status-filter">
     <option value="">All statuses</option>
@@ -17,6 +17,9 @@
   <select id="flag-filter">
     <option value="">All flags</option>
   </select>
+  <label id="flagged-only-label">
+    <input type="checkbox" id="flagged-only" checked> Flagged only
+  </label>
   <table id="reports-table">
     <thead>
       <tr>

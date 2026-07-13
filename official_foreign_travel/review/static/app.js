@@ -30,9 +30,12 @@ async function renderList() {
 
   const statusSelect = document.getElementById("status-filter");
   const flagSelect = document.getElementById("flag-filter");
-  const rerender = () => renderRows(reports, statusSelect.value, flagSelect.value);
+  const flaggedOnly = document.getElementById("flagged-only");
+  const rerender = () =>
+    renderRows(reports, statusSelect.value, flagSelect.value, flaggedOnly.checked);
   statusSelect.onchange = rerender;
   flagSelect.onchange = rerender;
+  flaggedOnly.onchange = rerender;
 
   document.querySelectorAll("th[data-sort]").forEach((th) => {
     th.onclick = () => {
@@ -43,7 +46,7 @@ async function renderList() {
     };
   });
 
-  renderRows(reports, "", "");
+  rerender();
 }
 
 function sortReports(reports, column, ascending) {
@@ -66,14 +69,18 @@ function updateSortIndicators() {
   });
 }
 
-function renderRows(reports, statusFilter, flagFilter) {
-  let filtered = statusFilter ? reports.filter((r) => r.status === statusFilter) : reports;
+function renderRows(reports, statusFilter, flagFilter, flaggedOnly) {
+  let filtered = flaggedOnly ? reports.filter((r) => r.flags.length > 0) : reports;
+  if (statusFilter) filtered = filtered.filter((r) => r.status === statusFilter);
   if (flagFilter) filtered = filtered.filter((r) => r.flags.includes(flagFilter));
   filtered = sortReports(filtered, listSort.column, listSort.ascending);
   updateSortIndicators();
 
-  const reviewed = reports.filter((r) => r.status !== "unreviewed").length;
-  document.getElementById("progress").textContent = `${reviewed}/${reports.length} reviewed`;
+  // The review queue is the flagged subset, whatever the current view shows.
+  const flagged = reports.filter((r) => r.flags.length > 0);
+  const reviewed = flagged.filter((r) => r.status !== "unreviewed").length;
+  document.getElementById("progress").textContent =
+    `${reviewed}/${flagged.length} flagged reviewed · ${reports.length} reports total`;
 
   const body = document.getElementById("reports-body");
   body.innerHTML = "";

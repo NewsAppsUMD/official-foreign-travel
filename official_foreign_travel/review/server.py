@@ -132,11 +132,18 @@ def run_server(
     host: str = "127.0.0.1",
     port: int = 8765,
 ) -> None:
-    """Start the review server and block until interrupted (Ctrl-C)."""
-    flagged = [r for r in reports if r.flags]
-    handler_cls = make_handler(flagged, report_text_dir, corrections_path)
+    """Start the review server and block until interrupted (Ctrl-C).
+
+    Every parsed report is browsable; the list view defaults to showing only
+    the flagged subset (the review queue), with a toggle for everything else.
+    """
+    flagged = sum(1 for r in reports if r.flags)
+    handler_cls = make_handler(reports, report_text_dir, corrections_path)
     server = ThreadingHTTPServer((host, port), handler_cls)
-    print(f"Review server running at http://{host}:{port}/ ({len(flagged)} flagged reports)")
+    print(
+        f"Review server running at http://{host}:{port}/ "
+        f"({len(reports)} reports, {flagged} flagged)"
+    )
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -123,10 +123,11 @@ oft-parse report_text/ output.json
 oft-review report_text/ output.json --corrections corrections.json
 ```
 
-Then open http://127.0.0.1:8765/ in a browser. The list view shows every flagged
-report with its flags, traveler count, and review status; clicking one opens a
-side-by-side view -- the original fixed-width table text on the left, an editable form
-of the extracted fields on the right. Clicking a segment's heading highlights the source
+Then open http://127.0.0.1:8765/ in a browser. Every parsed report is browsable; the
+list view defaults to the flagged review queue (uncheck "Flagged only" to see
+everything), showing each report's flags, traveler count, and review status. Clicking
+one opens a side-by-side view -- the original fixed-width table text on the left, an
+editable form of the extracted fields on the right. Clicking a segment's heading highlights the source
 lines it was parsed from. **Save** records any edits; **Confirm OK** marks a report
 reviewed with no changes needed. Both write to the `--corrections` file (default
 `corrections.json`), never to `output.json` itself, so a review session is never lost to

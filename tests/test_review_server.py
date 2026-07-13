@@ -61,6 +61,12 @@ def _flagged_report(report_id):
     )
 
 
+def _unflagged_report(report_id):
+    report = _flagged_report(report_id)
+    report.flags = []
+    return report
+
+
 @pytest.fixture
 def running_server(tmp_path):
     reports = [_flagged_report("r-1"), _flagged_report("r-2")]
@@ -92,6 +98,30 @@ class TestListEndpoint:
         assert len(data) == 2
         assert {r["report_id"] for r in data} == {"r-1", "r-2"}
         assert all(r["status"] == "unreviewed" for r in data)
+
+
+class TestUnflaggedReportsAreBrowsable:
+    """Every parsed report is served, not just the flagged review queue --
+    the list view's 'flagged only' toggle is a client-side filter."""
+
+    def test_list_and_detail_include_unflagged_reports(self, tmp_path):
+        reports = [_flagged_report("r-1"), _unflagged_report("r-clean")]
+        handler_cls = make_handler(reports, FIXTURES, tmp_path / "corrections.json")
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            status, body = _get(server, "/api/reports")
+            assert status == 200
+            listed = {r["report_id"] for r in json.loads(body)}
+            assert listed == {"r-1", "r-clean"}
+
+            status, body = _get(server, "/api/reports/r-clean")
+            assert status == 200
+            assert json.loads(body)["report"]["flags"] == []
+        finally:
+            server.shutdown()
+            thread.join()
 
 
 class TestCacheHeaders:
