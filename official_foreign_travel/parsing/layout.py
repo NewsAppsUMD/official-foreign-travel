@@ -20,7 +20,11 @@ NAME_LABEL_RE = re.compile(r"(?:Name|Hame)\s+of\s+(?:Member|Employee)", re.IGNOR
 ARRIVAL_LABEL_RE = re.compile(r"\bArriv\w*", re.IGNORECASE)
 DEPARTURE_LABEL_RE = re.compile(r"\bDepart\w*", re.IGNORECASE)
 COUNTRY_LABEL_RE = re.compile(r"\bCountry\b", re.IGNORECASE)
-FOREIGN_LABEL_RE = re.compile(r"\bForeign\b", re.IGNORECASE)
+# No trailing \b: 1994-era headers concatenate "Foreigncurrency" (no space
+# between "Foreign" and "currency"), so \bForeign\b would miss it. Within the
+# header window "Foreign" only appears as the column label, so the looser
+# match is safe.
+FOREIGN_LABEL_RE = re.compile(r"\bForeign", re.IGNORECASE)
 EQUIVALENT_LABEL_RE = re.compile(r"\bequivalent\b", re.IGNORECASE)
 CURRENCY_LABEL_RE = re.compile(r"\bcurrency\b", re.IGNORECASE)
 OR_US_LABEL_RE = re.compile(r"\bor\s+U\.S", re.IGNORECASE)
@@ -30,11 +34,13 @@ REFINE_WINDOW = 20
 NUM_COST_COLUMNS = 8
 
 
-def _merge_nearby(positions: list[int], tolerance: int = 2) -> list[int]:
+def _merge_nearby(positions: list[int], tolerance: int = 3) -> list[int]:
     """Deduplicate positions that fall within `tolerance` of each other.
 
     "equivalent" and the "or U.S." label beneath it start 1 char apart
-    in some 1998-era headers; merging keeps them as one column boundary.
+    in 1998-era headers; "equivalent" and "currency" (from "U.S.currency")
+    start 3 chars apart in 1994-era headers. A tolerance of 3 merges both
+    without collapsing distinct cost columns (which are 13+ chars apart).
     """
     merged: list[int] = []
     for pos in sorted(positions):
@@ -123,6 +129,15 @@ def _label_positions(window: list[str]) -> Optional[dict]:
     if name_pos is None or arrival_pos is None or departure_pos is None or country_pos is None:
         return None
 
+    # Drop word-wrap artifacts: when the header label line is too long, the
+    # last "Foreigncurrency   equivalent or" pair wraps to a continuation
+    # line at positions 0 and 18, which don't correspond to any real column.
+    # Real cost columns are always after the country column.
+    foreign_positions = [p for p in foreign_positions if p >= country_pos]
+    equivalent_positions = [p for p in equivalent_positions if p >= country_pos]
+    currency_positions = [p for p in currency_positions if p >= country_pos]
+    or_us_positions = [p for p in or_us_positions if p >= country_pos]
+
     all_cost_labels = foreign_positions + equivalent_positions
     cost_positions = _merge_nearby(all_cost_labels)
     if len(cost_positions) < NUM_COST_COLUMNS:
@@ -149,6 +164,59 @@ def _cuts_token(line: str, col: int) -> bool:
     if col <= 0 or col >= len(line):
         return False
     return line[col] != " " and line[col - 1] != " "
+
+
+GUTTER_MIN_DATA_ROWS = 6
+
+
+def _detect_gutter_starts(data_lines: Sequence[str], country_pos: int, max_col: int = 240) -> list[int]:
+    """Find cost-column-start positions from all-space gutters in the data.
+
+    When header labels are insufficient (e.g. 1994-era files with concatenated
+    "Foreigncurrency" labels and word-wrapped 4th pairs), the data rows
+    themselves reliably show where the columns are: dot-filled empty cells
+    alternate with all-space gutters. Each gutter's start is a column
+    boundary. The trailing gutter (after the last column, with no content
+    following it) is excluded.
+
+    Returns an empty list if there aren't enough data rows for reliable
+    detection -- with very few rows, entirely-empty columns produce no
+    visible gutter and the count comes out wrong.
+    """
+    if len(data_lines) < GUTTER_MIN_DATA_ROWS:
+        return []
+
+    line_len = min(max(len(l) for l in data_lines), max_col)
+    if line_len <= country_pos:
+        return []
+
+    all_space = [
+        col
+        for col in range(country_pos, line_len)
+        if all(col >= len(l) or l[col] == " " for l in data_lines)
+    ]
+
+    regions: list[tuple[int, int]] = []
+    start: int | None = None
+    for i, col in enumerate(all_space):
+        if start is None:
+            start = col
+        elif col != all_space[i - 1] + 1:
+            regions.append((start, all_space[i - 1]))
+            start = col
+    if start is not None:
+        regions.append((start, all_space[-1]))
+
+    column_starts: list[int] = []
+    for region in regions:
+        has_content_after = any(
+            any(col < len(l) and l[col] != " " for col in range(region[1] + 1, line_len))
+            for l in data_lines
+        )
+        if has_content_after:
+            column_starts.append(region[0])
+
+    return column_starts
 
 
 def _refine_boundary(guess: int, data_lines: Sequence[str]) -> tuple[int, bool]:
@@ -207,6 +275,15 @@ def detect_layout(block_lines: list[str], data_lines: Sequence[str]) -> Optional
 
     cost_positions = labels["cost_positions"]
     expected_cost_count = len(cost_positions) == NUM_COST_COLUMNS
+
+    if len(cost_positions) < NUM_COST_COLUMNS and len(data_lines) >= GUTTER_MIN_DATA_ROWS:
+        # Labels are incomplete (e.g. 1994-era concatenated "Foreigncurrency"
+        # labels with a word-wrapped 4th pair). The data rows themselves show
+        # where the columns are via all-space gutters -- fall back to that.
+        gutter_starts = _detect_gutter_starts(data_lines, labels["country"])
+        if len(gutter_starts) >= NUM_COST_COLUMNS:
+            cost_positions = gutter_starts[:NUM_COST_COLUMNS]
+            expected_cost_count = True
 
     boundaries = [
         ("name", 0),  # names are left-justified at column 0 despite the indented label

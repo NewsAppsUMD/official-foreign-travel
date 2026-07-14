@@ -8,6 +8,7 @@ import pytest
 from official_foreign_travel.parsing.layout import (
     ColumnSpan,
     _cuts_token,
+    _detect_gutter_starts,
     _merge_nearby,
     _refine_boundary,
     detect_layout,
@@ -134,6 +135,25 @@ def test_1998_truncated_header_finds_all_cost_columns():
     assert layout.confidence >= 0.8
 
 
+def test_1994_concatenated_labels_recovered_via_gutter_fallback():
+    """1994-era files concatenate "Foreigncurrency" (no word boundary) and
+    word-wrap the 4th label pair to a continuation line at bogus positions.
+    The FOREIGN regex change + country_pos filter recover 7 of 8 columns from
+    labels; the data-driven gutter fallback recovers the 8th (the 4th FC
+    column, whose label was lost to word-wrap)."""
+    blocks = segment_tables(load("1994q2may17_science.txt"), "1994q2may17_science.txt")
+    assert len(blocks) == 1
+    block = blocks[0]
+    data = data_lines_for(block)
+    assert len(data) >= 6  # enough rows for the gutter fallback
+    layout = detect_layout(block.lines, data)
+    assert layout is not None
+    starts = [span.start for span in layout.cost_columns]
+    assert len(starts) == 8
+    assert len(set(starts)) == len(starts), f"collided boundaries: {starts}"
+    assert layout.confidence >= 0.8
+
+
 class TestCutsToken:
     def test_inside_a_token_cuts(self):
         assert _cuts_token("  2,079.00", 5) is True
@@ -164,6 +184,31 @@ class TestMergeNearby:
 
     def test_empty_input(self):
         assert _merge_nearby([]) == []
+
+
+class TestDetectGutterStarts:
+    # Right-justified amounts with dot-filled empties -- the shape where
+    # labels are insufficient (1994 layout) and gutters must come from data.
+    ROWS = [
+        "country1     ...........  960.00    ...........  960.00  ",
+        "country2     FF4,733.91   801.00    ...........  ...........  ",
+        "country3     ...........  240.00    ...........  240.00  ",
+        "country4     ...........  354.75    3,709.85    4,089.59  ",
+        "country5     ...........  960.00    ...........  960.00  ",
+        "country6     ...........  240.00    ...........  240.00  ",
+    ]
+
+    def test_finds_gutter_starts_after_country(self):
+        # 4 cost columns (2 FC + 2 USD pairs): gutters before each column.
+        # The trailing spaces after the last column are excluded.
+        starts = _detect_gutter_starts(self.ROWS, country_pos=10)
+        assert starts == [10, 24, 32, 47]
+
+    def test_too_few_rows_returns_empty(self):
+        assert _detect_gutter_starts(self.ROWS[:3], country_pos=10) == []
+
+    def test_no_data_returns_empty(self):
+        assert _detect_gutter_starts([], country_pos=10) == []
 
 
 class TestRefineBoundaryRightJustified:

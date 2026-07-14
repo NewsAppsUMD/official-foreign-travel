@@ -45,15 +45,15 @@ giving up and returning the unrefined guess.
   total -- the exact shape that let this bug hide, because the sum
   check used to silently skip null-total segments.
 
-**Measured result after the fix** (same corpus, 55,992 segments -- no
+**Measured result after the fix** (same corpus, 62,503 segments -- no
 drop):
 
 | category        | before | after |
 |-----------------|--------|-------|
-| per_diem        | 74.3%  | 90.8% |
-| transportation  | 18.0%  | 24.4% |
-| other           | 6.2%   | 9.1%  |
-| total           | 60.2%  | 82.2% |
+| per_diem        | 74.3%  | 91.0% |
+| transportation  | 18.0%  | 24.7% |
+| other           | 6.2%   | 8.8%  |
+| total           | 60.2%  | 84.3% |
 
 Collided cost-column boundaries in the corpus fell from 571/2700 to
 0/2700. The 2 residuals that remained after the boundary-criterion fix
@@ -63,6 +63,21 @@ catch — the escaped entities shifted column positions in affected rows,
 destroying the aligned gutters the refiner relies on. `strip_html_tags`
 now strips `&lt;...&gt;` escaped entities alongside raw `<...>` tags,
 eliminating both residuals.
+
+A second class of low-confidence tables remained: 54 tables (mostly
+1998-era files with truncated header label lines, plus 4 tables in
+`1994q2may17.txt` with a concatenated "Foreigncurrency" label format
+where the 4th label pair word-wrapped to a continuation line at bogus
+positions). The truncated-header tables were recovered by falling back
+to the "currency" and "or U.S." labels on subsequent header lines when
+the primary Foreign/equivalent labels fell short. The 1994 tables were
+recovered by matching "Foreign" without requiring a trailing word
+boundary (so "Foreigncurrency" matches), filtering word-wrap artifacts
+before the country column, and falling back to data-driven gutter
+detection when labels still produced fewer than 8 positions. After
+both fixes, only 2 tables remain below the confidence threshold: one
+4-row 1994 table with too few data rows for the gutter fallback, and
+one "no expenditures" table with a genuine 7-column layout.
 
 **Previously shipped numbers were wrong.** Cost figures parsed by
 v3.0.0 were affected on roughly 21% of tables: right-justified amounts
@@ -82,6 +97,14 @@ transportation may want to revisit that confirmation.
 - `ROW_TOTAL_MISSING` segment flag (set when a segment has cost
   components but no declared total). Surfaces the failure mode that let
   the boundary bug hide from the row-sum check.
+- Data-driven gutter fallback in `detect_layout`: when header labels
+  produce fewer than 8 cost column positions (e.g. 1994-era files with
+  concatenated "Foreigncurrency" labels and word-wrapped 4th pairs),
+  and the table has ≥6 data rows, the layout detector finds all-space
+  gutter regions directly from the data and uses their starts as column
+  boundaries. This recovers all 8 cost columns for 1994 tables with
+  enough data, where labels alone could only find 7 (missing the 4th
+  foreign-currency column whose label was lost to word-wrap).
 
 ### Changed
 
@@ -89,7 +112,13 @@ transportation may want to revisit that confirmation.
   snaps to the nearest position that cuts no row's token (was: nearest
   position where ≥60% of rows start a token). `_is_token_start` is
   replaced by `_cuts_token`. `detect_layout` caps confidence to 0.5
-  when refined positions are not unique.
+  when refined positions are not unique. `FOREIGN_LABEL_RE` drops the
+  trailing `\b` to match concatenated "Foreigncurrency" (1994 layout).
+  `_merge_nearby` tolerance increased from 2 to 3 to merge "equivalent"
+  and "currency" labels 3 chars apart (1994 "U.S.currency" layout).
+  `_label_positions` filters cost label positions before `country_pos`
+  to drop word-wrap artifacts. New `_detect_gutter_starts` provides the
+  data-driven fallback.
 - `official_foreign_travel/parsing/validate.py`: `validate_report`
   raises `ROW_TOTAL_MISSING` on segments with components but no total,
   and clears it on re-validation (idempotent).
