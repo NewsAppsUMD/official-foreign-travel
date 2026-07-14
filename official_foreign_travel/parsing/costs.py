@@ -11,6 +11,9 @@ FOOTNOTE_MARKER_RE = re.compile(r"\\(\d+)\\")
 # stripping upstream) the bare "(3)" -- backslashes around the digit are optional.
 WHOLE_CELL_FOOTNOTE_RE = re.compile(r"^\(\s*\\?(\d+)\\?\s*\)$")
 DOTFILL_RE = re.compile(r"^\.{2,}$")
+DASHFILL_RE = re.compile(r"^-{2,}$")
+# Leading currency code (FF, DM, SEK, L, HK, LE, D, etc.) before a digit.
+CURRENCY_PREFIX_RE = re.compile(r"^[A-Z]{1,3}(?=[\d,])")
 MILITARY_AIR_RE = re.compile(r"military\s+air", re.IGNORECASE)
 
 
@@ -95,8 +98,31 @@ def parse_cost_cell(
 
     military_air = any(MILITARY_AIR_RE.search(footnote_map.get(fn, "")) for fn in footnotes)
 
-    if stripped == "" or DOTFILL_RE.match(stripped):
+    if stripped == "" or DOTFILL_RE.match(stripped) or DASHFILL_RE.match(stripped):
         return CostCell(amount=None, raw=raw, footnotes=footnotes, military_air=military_air), None
+
+    # Strip a leading currency code (FF4,733.91 → 4,733.91) or dollar sign
+    # ($315.00 → 315.00). The prefix is preserved in `raw` for reference.
+    currency_match = CURRENCY_PREFIX_RE.match(stripped)
+    if currency_match:
+        stripped = stripped[currency_match.end():]
+    elif stripped.startswith("$"):
+        stripped = stripped[1:].strip()
+
+    # Strip trailing dots that are fixed-width padding residue, not part of
+    # the value (e.g. "462.00  .." → "462.00"). The dots follow the amount
+    # because the cell wasn't fully filled by the right-justified number.
+    stripped = re.sub(r"\s*\.+$", "", stripped).strip()
+    if not stripped or DOTFILL_RE.match(stripped):
+        return CostCell(amount=None, raw=raw, footnotes=footnotes, military_air=military_air), None
+
+    # European thousands convention: 5.723.37 → 5723.37 (periods as thousands
+    # separators, last period is the decimal point). Only applies when there
+    # are 2+ periods and the last group is exactly 2 digits (the decimal part).
+    if stripped.count(".") >= 2:
+        head, tail = stripped.rsplit(".", 1)
+        if len(tail) == 2:
+            stripped = head.replace(".", "") + "." + tail
 
     numeric_text = stripped.replace(",", "")
     try:

@@ -108,6 +108,20 @@ transportation may want to revisit that confirmation.
 
 ### Changed
 
+- `official_foreign_travel/parsing/costs.py`: `parse_cost_cell` now
+  strips leading currency codes (FF, DM, SEK, L, HK, LE, D, etc.)
+  and dollar signs before parsing, so foreign-currency amounts like
+  `FF4,733.91` and `$315.00` are correctly parsed instead of flagged
+  as `UNPARSEABLE_COST_CELL`. European thousands convention
+  (`5.723.37` → 5723.37) is recognized when there are 2+ periods and
+  the last group is exactly 2 digits. Dash-filled cells (`--`) are
+  treated as empty (no value), matching the dot-fill convention.
+  Trailing dots that are fixed-width padding residue (e.g.
+  `462.00  ..` → 462.00) are stripped. Corpus-wide, this recovered
+  2,569 foreign-currency amounts that were previously dropped and
+  reduced `UNPARSEABLE_COST_CELL` from 2,475 to 1,362 segments (45%
+  reduction); the residual flags are genuinely misaligned text
+  ("English", "Franc") that is not a value to recover.
 - `official_foreign_travel/parsing/layout.py`: `_refine_boundary` now
   snaps to the nearest position that cuts no row's token (was: nearest
   position where ≥60% of rows start a token). `_is_token_start` is

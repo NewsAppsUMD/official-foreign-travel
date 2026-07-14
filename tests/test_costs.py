@@ -83,6 +83,63 @@ class TestParseCostCell:
         assert cell.amount is None
         assert flag == "UNPARSEABLE_COST_CELL"
 
+    def test_misaligned_text_is_flagged(self):
+        """Text like 'English' or 'Franc' leaking into a cost cell from column
+        misalignment is genuinely unparseable -- not a value to recover."""
+        cell, flag = parse_cost_cell("English")
+        assert cell.amount is None
+        assert flag == "UNPARSEABLE_COST_CELL"
+
+    def test_currency_prefixed_french_franc(self):
+        cell, flag = parse_cost_cell("FF4,733.91")
+        assert cell.amount == Decimal("4733.91")
+        assert flag is None
+
+    def test_currency_prefixed_deutsche_mark(self):
+        cell, flag = parse_cost_cell("DM1,462.55")
+        assert cell.amount == Decimal("1462.55")
+        assert flag is None
+
+    def test_currency_prefixed_swedish_krona(self):
+        cell, flag = parse_cost_cell("SEK1,507.50")
+        assert cell.amount == Decimal("1507.50")
+        assert flag is None
+
+    def test_single_letter_currency_prefix(self):
+        cell, flag = parse_cost_cell("L865,576")
+        assert cell.amount == Decimal("865576")
+        assert flag is None
+
+    def test_dollar_sign_prefix(self):
+        cell, flag = parse_cost_cell("$315.00")
+        assert cell.amount == Decimal("315.00")
+        assert flag is None
+
+    def test_european_thousands_separators(self):
+        cell, flag = parse_cost_cell("5.723.37")
+        assert cell.amount == Decimal("5723.37")
+        assert flag is None
+
+    def test_currency_prefix_with_european_thousands(self):
+        cell, flag = parse_cost_cell("FF5.723.37")
+        assert cell.amount == Decimal("5723.37")
+        assert flag is None
+
+    def test_dashes_are_empty(self):
+        cell, flag = parse_cost_cell("--")
+        assert cell.amount is None
+        assert flag is None
+
+    def test_value_with_trailing_dots(self):
+        cell, flag = parse_cost_cell("462.00  ..")
+        assert cell.amount == Decimal("462.00")
+        assert flag is None
+
+    def test_currency_prefix_with_trailing_dots(self):
+        cell, flag = parse_cost_cell("FF4,733.91  ..")
+        assert cell.amount == Decimal("4733.91")
+        assert flag is None
+
 
 def _cost_cell(amount):
     return CostCell(amount=Decimal(amount) if amount is not None else None, raw=str(amount))
