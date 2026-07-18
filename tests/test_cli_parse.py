@@ -72,14 +72,14 @@ class TestParseCli:
         run_cli([str(FIXTURES), str(out_default)], monkeypatch)
         default_data = json.loads(out_default.read_text())
         default_matched = sum(
-            1 for r in default_data["reports"] for t in r["travelers"] if t.get("bioguide_id")
+            1 for r in default_data["reports"] for t in r.get("travelers", []) if t.get("bioguide_id")
         )
 
         out_nofuzzy = tmp_path / "nofuzzy.json"
         run_cli([str(FIXTURES), str(out_nofuzzy), "--no-fuzzy-name-matching"], monkeypatch)
         nofuzzy_data = json.loads(out_nofuzzy.read_text())
         nofuzzy_matched = sum(
-            1 for r in nofuzzy_data["reports"] for t in r["travelers"] if t.get("bioguide_id")
+            1 for r in nofuzzy_data["reports"] for t in r.get("travelers", []) if t.get("bioguide_id")
         )
 
         assert default_matched > nofuzzy_matched

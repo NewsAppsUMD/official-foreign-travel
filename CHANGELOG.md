@@ -1,5 +1,95 @@
 # Changelog
 
+## [3.0.31] - 2026-07-18
+
+### Added - Per-year JSON output for ongoing tracking
+
+`oft-parse` can now partition the output by publication year
+(`source_file[:4]`) and write one JSON file per year into a directory,
+so a fresh parse only rewrites the years whose source files changed.
+
+New CLI flags:
+- **`--split-by-year`**: treat `output` as a directory and write
+  `<output>/<year>.json` for each year present in the corpus. Each file
+  has the same `{schema_version, generated_at, source, reports}` envelope
+  as the single-file output, so the review CLI loads either form
+  transparently.
+- **`--gz`**: with `--split-by-year`, gzip each per-year file
+  (`<year>.json.gz`). The review CLI decompresses transparently.
+
+`cli/review.py` `_load_reports` now accepts either a single JSON file
+(legacy `output.json`) or a directory of per-year JSON files. The
+directory loader globs `*.json` and `*.json.gz` and concatenates the
+reports -- so `uv run oft-review report_text/ output/` works for the
+new per-year layout, and `uv run oft-review report_text/ output.json`
+still works for the single-file layout.
+
+`.gitignore` now covers `output/` (in addition to `output*.json` and
+`output*.json.gz`), so the recommended per-year directory is never
+committed accidentally. The full-fat `output_full.json` from v3.0.30
+remains preserved locally.
+
+Size on the 3607-report corpus (1994-2026):
+- Per-year uncompressed: 33 files, 141 MB total (each 0.8-6 MB)
+- Per-year gzipped: 33 files, 4.2 MB total (each 27-200 KB)
+
+Going-forward workflow for ongoing tracking:
+```
+uv run oft-parse report_text/ output/ --split-by-year --gz
+uv run oft-review report_text/ output/
+```
+
+All 741 tests pass (2 new tests for `write_json_dir`).
+
+## [3.0.30] - 2026-07-18
+
+### Changed - Lean JSON output by default (241 MB → 141 MB → 2.8 MB)
+
+The canonical `output.json` from `oft-parse` is now ~58% smaller by
+default, and can be ~99% smaller with the new flags. The review tool
+and any `Report.model_validate` consumer are unaffected -- Pydantic
+rehydrates defaults on load.
+
+Defaults applied to `serialize.write_json` (and `ReportParser.write_json`):
+- **`exclude_defaults=True`**: omits any field whose value equals the
+  model default (`False`, `None`, `""`, `[]`, `{}`). The bulk of the
+  old 241 MB file was 451,640 `CostCell` objects each carrying 9 fields,
+  of which 6 (`computed`, `military_air`, `double_counted`, `trip_total`,
+  `comma_decimal_typo`, `source_amount`) were `False`/`None` ~99% of the
+  time. Saves ~100 MB on the full 1994-2026 corpus.
+
+New CLI flags:
+- **`--slim`**: additionally drops source-text fields the review tool
+  re-loads from `report_text/` at view time -- `CostCell.raw`,
+  `arrival_raw`, `departure_raw`, `header_raw`, `signature_raw`,
+  `Sponsor.raw`. Saves another ~28 MB. Required-field defaults
+  (`arrival_raw: str = ""`, etc.) were added to `TravelSegment`,
+  `Sponsor`, and `Report` so `--slim` exclusions still round-trip via
+  `Report.model_validate`.
+- **`--full-fat`**: opt-out, writes every field (the pre-3.0.30 format).
+  Useful for diffing against older parses or for any consumer that
+  expects every key present.
+
+Gzip support: writing to a path ending in `.json.gz` (or any `.gz`)
+auto-gzips the output. The review CLI transparently decompresses on
+load. Combined with the lean defaults, the full corpus is 4.1 MB
+gzipped; with `--slim`, 2.8 MB.
+
+The existing full-fat `output.json` was preserved as `output_full.json`
+(gitignored) before the default changed, so the original 241 MB format
+remains available locally for comparison. `.gitignore` now covers
+`output*.json`, `output*.json.gz`, and `corrections.json` so no parse
+or review artifact is committed accidentally.
+
+Size summary on the 3607-report corpus:
+- `output_full.json` (full-fat, original): 241 MB
+- `output.json` (lean, default): 141 MB
+- `output.json --slim`: 113 MB
+- `output.json.gz` (lean + gzip): 4.1 MB
+- `output.json.gz --slim`: 2.8 MB
+
+All 739 tests pass.
+
 ## [3.0.29] - 2026-07-17
 
 ### Fixed - Scraper rewritten for disclosures-clerk.house.gov (104 new reports)

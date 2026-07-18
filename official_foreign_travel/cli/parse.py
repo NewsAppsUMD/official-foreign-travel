@@ -11,7 +11,12 @@ from ..scrapers.report_parser import ReportParser
 from ..utils.config import get_config
 from ..utils.logging import setup_logger
 
-FORMAT_BY_EXTENSION = {".json": "json", ".csv": "csv", ".jsonl": "jsonl"}
+FORMAT_BY_EXTENSION = {
+    ".json": "json",
+    ".gz": "json",  # .gz => gzip-compressed JSON
+    ".csv": "csv",
+    ".jsonl": "jsonl",
+}
 
 
 def _infer_format(output: Path, explicit: str) -> str:
@@ -53,6 +58,39 @@ def main() -> int:
         "--include-superseded",
         action="store_true",
         help="Include amended-report duplicates that were superseded by a later publication",
+    )
+    parser.add_argument(
+        "--slim",
+        action="store_true",
+        help="Drop source-text fields (CostCell.raw, arrival_raw, departure_raw, "
+        "header_raw, signature_raw, Sponsor.raw) that the review tool re-loads "
+        "from report_text/ at view time. Saves ~9 MB on the full corpus. "
+        "Cannot be combined with --full-fat.",
+    )
+    parser.add_argument(
+        "--full-fat",
+        action="store_true",
+        help="Write every field, including defaults (false/null/empty). "
+        "Produces the original pre-v3.0.30 format. The review tool and any "
+        "Report.model_validate consumer are unaffected by --full-fat vs the "
+        "lean default. Cannot be combined with --slim.",
+    )
+    parser.add_argument(
+        "--split-by-year",
+        action="store_true",
+        help="Partition the output by publication year (source_file[:4]) and "
+        "write one JSON file per year into the output directory. The output "
+        "path is treated as a directory and created if missing. Each file has "
+        "the same envelope as the single-file output, so oft-review loads "
+        "either form transparently. Recommended for ongoing tracking -- a "
+        "fresh parse only rewrites the years whose source files changed.",
+    )
+    parser.add_argument(
+        "--gz",
+        action="store_true",
+        help="With --split-by-year, gzip each per-year file (<year>.json.gz). "
+        "The review CLI decompresses transparently. Ignored without "
+        "--split-by-year (use a .gz suffix on the output filename instead).",
     )
     parser.add_argument(
         "--fuzzy-name-matching",
@@ -170,8 +208,34 @@ def main() -> int:
         print(f"Applying corrections: {matched} of {len(corrections)} matched a parsed report")
         reports = apply_corrections(reports, corrections)
 
-    if output_format == "json":
-        report_parser.write_json(reports, args.output, include_superseded=args.include_superseded)
+    if args.slim and args.full_fat:
+        print("Error: --slim and --full-fat are mutually exclusive")
+        return 1
+
+    if args.split_by_year:
+        per_year = report_parser.write_json_dir(
+            reports,
+            args.output,
+            include_superseded=args.include_superseded,
+            exclude_defaults=not args.full_fat,
+            slim=args.slim,
+            compress=args.gz,
+        )
+        from ..parsing.serialize import visible_reports
+
+        stats = {
+            "reports": len(visible_reports(reports, args.include_superseded)),
+            "year_files": len(per_year),
+            "years": ",".join(sorted(per_year)),
+        }
+    elif output_format == "json":
+        report_parser.write_json(
+            reports,
+            args.output,
+            include_superseded=args.include_superseded,
+            exclude_defaults=not args.full_fat,
+            slim=args.slim,
+        )
         from ..parsing.serialize import visible_reports
 
         stats = {"reports": len(visible_reports(reports, args.include_superseded))}

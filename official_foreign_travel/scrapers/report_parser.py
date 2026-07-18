@@ -20,7 +20,7 @@ from ..parsing.assemble import (
     load_name_index,
 )
 from ..parsing.dedup import dedup_reports
-from ..parsing.serialize import write_csv, write_json, write_jsonl
+from ..parsing.serialize import write_csv, write_json, write_json_dir, write_jsonl
 from ..parsing.validate import validate_reports
 from ..utils.config import Config, get_config
 from ..utils.logging import get_logger
@@ -94,10 +94,47 @@ class ReportParser:
         return write_csv(reports, output_file, include_superseded)
 
     def write_json(
-        self, reports: list[Report], output_file: Path, include_superseded: bool = False
+        self,
+        reports: list[Report],
+        output_file: Path,
+        include_superseded: bool = False,
+        *,
+        exclude_defaults: bool = True,
+        slim: bool = False,
     ) -> None:
-        """Write reports to the canonical JSON format."""
-        write_json(reports, output_file, include_superseded)
+        """Write reports to the canonical JSON format.
+
+        ``exclude_defaults`` and ``slim`` are passed through to
+        ``serialize.write_json`` -- see that function's docstring.
+        """
+        write_json(
+            reports,
+            output_file,
+            include_superseded,
+            exclude_defaults=exclude_defaults,
+            slim=slim,
+        )
+
+    def write_json_dir(
+        self,
+        reports: list[Report],
+        output_dir: Path,
+        include_superseded: bool = False,
+        *,
+        exclude_defaults: bool = True,
+        slim: bool = False,
+        compress: bool = False,
+    ) -> dict[str, int]:
+        """Write per-year JSON files into ``output_dir``. See
+        ``serialize.write_json_dir`` for the partitioning rule and return shape."""
+        return write_json_dir(
+            reports,
+            output_dir,
+            include_superseded,
+            exclude_defaults=exclude_defaults,
+            slim=slim,
+            compress=compress,
+        )
 
     def write_jsonl(
         self, reports: list[Report], output_file: Path, include_superseded: bool = False

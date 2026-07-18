@@ -23,7 +23,7 @@ class TestReviewCli:
     def test_missing_parsed_json_returns_error_code(self, tmp_path, monkeypatch, capsys):
         code = run_cli([str(tmp_path), str(tmp_path / "does-not-exist.json")], monkeypatch)
         assert code == 1
-        assert "file not found" in capsys.readouterr().out
+        assert "not found" in capsys.readouterr().out
 
     def test_invalid_json_returns_error_code(self, tmp_path, monkeypatch, capsys):
         bad_json = tmp_path / "bad.json"

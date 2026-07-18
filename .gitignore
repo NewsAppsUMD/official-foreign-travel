@@ -76,5 +76,7 @@ dmypy.json
 
 # ruff
 .ruff_cache/
-output.json
+output*.json
+output*.json.gz
 corrections.json
+output/

@@ -94,9 +94,9 @@ class TravelSegment(BaseModel):
 
     arrival_date: Optional[date] = None
     departure_date: Optional[date] = None
-    arrival_raw: str
-    departure_raw: str
-    country_raw: str
+    arrival_raw: str = ""
+    departure_raw: str = ""
+    country_raw: str = ""
     countries: list[str] = Field(default_factory=list)
     costs: Costs
     flags: list[str] = Field(default_factory=list)
@@ -123,7 +123,7 @@ class Sponsor(BaseModel):
     type: SponsorType
     name: str
     code: Optional[str] = None
-    raw: str
+    raw: str = ""
 
 
 class Period(BaseModel):
@@ -148,7 +148,7 @@ class Report(BaseModel):
     parse_method: Literal["deterministic", "llm"] = "deterministic"
     sponsor: Sponsor
     period: Optional[Period] = None
-    header_raw: str
+    header_raw: str = ""
     travelers: list[Traveler] = Field(default_factory=list)
     committee_total: Optional[Costs] = None
     footnotes: dict[str, str] = Field(default_factory=dict)
