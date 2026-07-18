@@ -1,6 +1,38 @@
 """Tests for text utility functions."""
 
-from official_foreign_travel.utils.text import lower_name, normalize_name, strip_html_tags
+from official_foreign_travel.utils.text import (
+    clean_cell,
+    get_honorific,
+    lower_name,
+    normalize_name,
+    strip_html_tags,
+)
+
+
+class TestCleanCell:
+    def test_strips_trailing_dots(self):
+        assert clean_cell("Smith............") == "Smith"
+
+    def test_strips_whitespace(self):
+        assert clean_cell("   Smith   ") == "Smith"
+
+    def test_strips_interleaved_dots_and_spaces(self):
+        """When a name column's dotfill bleeds 1-2 chars into the adjacent
+        column, the slice ends with 'name.....  .' (dots interrupted by a
+        space). clean_cell must strip all of that, not just the final dot."""
+        assert clean_cell("    Hon. Gregorio Sablan...............  .") == "Hon. Gregorio Sablan"
+
+    def test_preserves_internal_periods(self):
+        assert clean_cell("Hon. Frank McCloskey") == "Hon. Frank McCloskey"
+
+    def test_empty_returns_default(self):
+        assert clean_cell("   ") == ""
+        assert clean_cell("   ", default="-") == "-"
+
+    def test_trailing_dot_in_name_is_stripped(self):
+        """A trailing period (e.g. an initial 'John A.') is stripped by
+        clean_cell; this is an accepted limitation, not a bug."""
+        assert clean_cell("John A.") == "John A"
 
 
 class TestLowerName:
@@ -82,3 +114,48 @@ class TestStripHtmlTags:
     def test_strips_mixed_raw_and_escaped_tags(self):
         raw = "&lt;strong&gt;OFFICIAL&lt;/strong&gt; <strong>FOREIGN</strong> TRAVEL"
         assert strip_html_tags(raw) == "OFFICIAL FOREIGN TRAVEL"
+
+
+class TestGetHonorific:
+    """Congressional honorifics (Hon/Rep/Sen) may appear without a trailing
+    period in 1990s reports; non-congressional honorifics still require one."""
+
+    def test_hon_with_period(self):
+        assert get_honorific("Hon. Charles Wilson") == "Hon."
+
+    def test_hon_without_period(self):
+        """'Hon Charles Wilson' (no period) is still detected as 'Hon.'."""
+        assert get_honorific("Hon Charles Wilson") == "Hon."
+
+    def test_rep_without_period(self):
+        assert get_honorific("Rep William Lipinski") == "Rep."
+
+    def test_sen_without_period(self):
+        assert get_honorific("Sen Tim Hutchinson") == "Sen."
+
+    def test_lowercase_hon_without_period(self):
+        assert get_honorific("hon Charles Wilson") == "hon."
+
+    def test_mr_requires_period(self):
+        """'Mr Ben McMakin' (no period) must NOT be detected as 'Mr.' -- that
+        would promote a bare-looking staffer name into the non-congressional
+        fuzzy path and produce wrong member matches."""
+        assert get_honorific("Mr Ben McMakin") == ""
+
+    def test_ms_requires_period(self):
+        assert get_honorific("Ms Jane Doe") == ""
+
+    def test_dr_requires_period(self):
+        assert get_honorific("Dr John Smith") == ""
+
+    def test_mr_with_period_still_detected(self):
+        assert get_honorific("Mr. Ben McMakin") == "Mr."
+
+    def test_dr_with_period_still_detected(self):
+        assert get_honorific("Dr. John Smith") == "Dr."
+
+    def test_bare_name_returns_empty(self):
+        assert get_honorific("Charles Wilson") == ""
+
+    def test_empty_string_returns_empty(self):
+        assert get_honorific("") == ""

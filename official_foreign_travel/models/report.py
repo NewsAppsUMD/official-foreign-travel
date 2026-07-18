@@ -24,10 +24,52 @@ class CostCell(BaseModel):
     raw: str = ""
     footnotes: list[str] = Field(default_factory=list)
     military_air: bool = False
+    # True when `amount` was filled in by `validate_report` rather than the
+    # source -- either because the source omitted the total (components
+    # present, total cell dot-filled) or because a supplement row was
+    # merged in after the source declared its total and the source value
+    # no longer matches the components. Distinguishes "we computed this"
+    # from "the source declared this" for downstream consumers and for
+    # `validate_report`'s idempotency check.
+    computed: bool = False
+    # True when `amount` was overwritten because the source double-counted
+    # one of the component amounts in its declared total (the source total
+    # exceeded the component sum by exactly one component). Set alongside
+    # `computed=True`; lets `validate_report` re-derive `ROW_TOTAL_DOUBLE_COUNTED`
+    # on revalidation without conflating with the source-omitted recovery
+    # (which also sets `computed=True` but is not a double-count).
+    double_counted: bool = False
+    # True when `amount` was overwritten because the source filled the
+    # trip total (the cumulative per_diem across all the traveler's
+    # segments) into this one segment's total cell, rather than the
+    # segment's own per-segment total. Set alongside `computed=True`;
+    # lets `validate_report` re-derive `ROW_TOTAL_IS_TRIP_TOTAL` on
+    # revalidation. The original source trip total is preserved in
+    # `source_amount`.
+    trip_total: bool = False
+    # True when `amount` was overwritten because the source used a comma
+    # where a decimal point should be (e.g. per_diem=`1,204.00`,
+    # total=`1,204,00` parsed as 120400). Recovery overwrites with the
+    # single component value; the source-declared (100×) total is
+    # preserved in `source_amount`. Set alongside `computed=True`;
+    # lets `validate_report` re-derive `ROW_TOTAL_COMMA_DECIMAL_TYPO`
+    # on revalidation.
+    comma_decimal_typo: bool = False
+    # The original source-declared amount before a supplement-merge recovery
+    # overwrote it. Set only on `total.us_dollar` cells when
+    # `COST_SUPPLEMENT_MERGED` triggered a `ROW_TOTAL_COMPUTED` overwrite.
+    # The table-level sum check uses this to verify the committee total
+    # against the pre-supplement sum (the source declared the committee
+    # total before supplements were merged into segment components).
+    source_amount: Optional[Decimal] = None
 
     @field_serializer("amount")
     def _serialize_amount(self, value: Optional[Decimal]) -> Optional[str]:
         # Serialize as a string so JSON consumers never lose cent-level precision.
+        return str(value) if value is not None else None
+
+    @field_serializer("source_amount")
+    def _serialize_source_amount(self, value: Optional[Decimal]) -> Optional[str]:
         return str(value) if value is not None else None
 
 

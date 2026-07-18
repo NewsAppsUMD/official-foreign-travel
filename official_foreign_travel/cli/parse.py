@@ -56,9 +56,11 @@ def main() -> int:
     )
     parser.add_argument(
         "--fuzzy-name-matching",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help="Fall back to fuzzy name matching (via legislator YAML data) when a traveler "
-        "name doesn't exactly match members.csv",
+        "name doesn't exactly match members.csv (default: on; use --no-fuzzy-name-matching "
+        "to disable, which leaves ~800 more travelers unmatched)",
     )
     parser.add_argument(
         "--llm-fallback",

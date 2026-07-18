@@ -126,16 +126,24 @@ class TestSaveReportCorrection:
 
 
 def _cell(amount=None):
-    return CostCell(amount=Decimal(amount) if amount is not None else None, raw="")
+    # Mirror real source conventions: dot-fill when empty, the amount
+    # string when present. validate_report uses `raw` to distinguish
+    # source-declared totals from computed ones, so an empty-string raw
+    # on a set amount would be misread as "we computed it."
+    if amount is None:
+        return CostCell(amount=None, raw="...........")
+    return CostCell(amount=Decimal(amount), raw=str(amount))
 
 
 def _costs(total=None):
-    empty = _cell()
+    # Each cell must be a distinct instance -- a shared `empty` cell would
+    # alias across groups, so mutating one (e.g. setting
+    # transportation.us_dollar.amount) would silently mutate the others.
     return Costs(
-        per_diem=CostGroup(foreign_currency=empty, us_dollar=_cell(total)),
-        transportation=CostGroup(foreign_currency=empty, us_dollar=empty),
-        other=CostGroup(foreign_currency=empty, us_dollar=empty),
-        total=CostGroup(foreign_currency=empty, us_dollar=_cell(total)),
+        per_diem=CostGroup(foreign_currency=_cell(), us_dollar=_cell(total)),
+        transportation=CostGroup(foreign_currency=_cell(), us_dollar=_cell()),
+        other=CostGroup(foreign_currency=_cell(), us_dollar=_cell()),
+        total=CostGroup(foreign_currency=_cell(), us_dollar=_cell(total)),
     )
 
 
@@ -182,6 +190,9 @@ class TestApplyCorrections:
 
     def test_edit_to_a_cost_amount_is_reflected_and_revalidated(self):
         report = _report("r-1")
+        # Add a second component so the segment produces a real downgrade flag
+        # (positive delta → ROW_TOTAL_INCLUDES_UNBROKEN_COSTS).
+        report.travelers[0].segments[0].costs.transportation.us_dollar.amount = Decimal("50.00")
         corrections = {
             "r-1": {
                 "status": "edited",
@@ -193,28 +204,31 @@ class TestApplyCorrections:
         result = apply_corrections([report], corrections)
         segment = result[0].travelers[0].segments[0]
         assert segment.costs.total.us_dollar.amount == Decimal("999.00")
-        # per_diem (100.00) no longer matches the corrected total (999.00) -> flagged
-        assert "ROW_SUM_MISMATCH" in segment.flags
+        # per_diem (100) + transport (50) = 150, no longer matches the corrected total (999) -> flagged
+        assert "ROW_TOTAL_INCLUDES_UNBROKEN_COSTS" in segment.flags
 
     def test_correction_fixing_arithmetic_clears_stale_row_sum_mismatch(self):
         report = _report("r-1")
         segment = report.travelers[0].segments[0]
+        # Add a second component so the segment produces a real downgrade flag
+        # (positive delta → ROW_TOTAL_INCLUDES_UNBROKEN_COSTS).
+        segment.costs.transportation.us_dollar.amount = Decimal("50.00")
         segment.costs.total.us_dollar.amount = Decimal("999.00")
         validate_report(report)
-        assert "ROW_SUM_MISMATCH" in segment.flags
+        assert "ROW_TOTAL_INCLUDES_UNBROKEN_COSTS" in segment.flags
 
         corrections = {
             "r-1": {
                 "status": "edited",
                 "edits": {
-                    "travelers[0].segments[0].costs.total.us_dollar.amount": "100.00",
+                    "travelers[0].segments[0].costs.total.us_dollar.amount": "150.00",
                 },
             }
         }
         result = apply_corrections([report], corrections)
         fixed_segment = result[0].travelers[0].segments[0]
-        assert fixed_segment.costs.total.us_dollar.amount == Decimal("100.00")
-        assert "ROW_SUM_MISMATCH" not in fixed_segment.flags
+        assert fixed_segment.costs.total.us_dollar.amount == Decimal("150.00")
+        assert "ROW_TOTAL_INCLUDES_UNBROKEN_COSTS" not in fixed_segment.flags
 
     def test_edit_with_invalid_path_does_not_silently_apply(self):
         report = _report("r-1")

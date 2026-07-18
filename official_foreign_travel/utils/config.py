@@ -44,11 +44,11 @@ class Config(BaseSettings):
 
     # Scraper settings
     base_url: str = Field(
-        default="http://clerk.house.gov",
-        description="Base URL for House Clerk website",
+        default="https://disclosures-clerk.house.gov",
+        description="Base URL for House Clerk disclosures site",
     )
     start_year: int = Field(default=1994, description="Start year for scraping")
-    end_year: int = Field(default=2020, description="End year for scraping")
+    end_year: int = Field(default=2027, description="End year (exclusive) for scraping")
     request_timeout: int = Field(default=30, description="HTTP request timeout in seconds")
     retry_attempts: int = Field(default=3, description="Number of retry attempts")
     retry_delay: float = Field(default=2.0, description="Delay between retries in seconds")

@@ -96,8 +96,10 @@ oft-parse report_text/ output.txt --format jsonl
 # Include amended-report duplicates that were superseded by a later publication
 oft-parse report_text/ output.json --include-superseded
 
-# Fall back to fuzzy name matching (requires legislator YAML data -- see below)
-oft-parse report_text/ output.json --fuzzy-name-matching
+# Fuzzy name matching is on by default (requires legislator YAML data -- see below).
+# Use --no-fuzzy-name-matching to disable, which leaves ~800 more travelers unmatched.
+oft-parse report_text/ output.json
+oft-parse report_text/ output.json --no-fuzzy-name-matching
 
 # Route tables that fail deterministic parsing to a model, via `llm` (off by default)
 export ANTHROPIC_API_KEY=...
@@ -160,8 +162,8 @@ oft-test-matching report_text/ issues.txt --cache my_cache.pickle
 
 Fetches `legislators-{current,historical}.yaml` and `committees-{current,historical}.yaml`
 from [unitedstates/congress-legislators](https://github.com/unitedstates/congress-legislators)
--- the legislator files are required for `--fuzzy-name-matching`; both are needed to
-regenerate `members.csv`/`committees.csv` (below).
+-- the legislator files are required for fuzzy name matching (now on by default);
+both are needed to regenerate `members.csv`/`committees.csv` (below).
 
 ```bash
 oft-download-legislators
@@ -191,7 +193,7 @@ either by dropping an ambiguous name shared by two different people (never guess
 by preferring whichever YAML file was listed first (current before historical) when two
 committees land on the same name.
 
-A dropped-ambiguous name usually still resolves at parse time: `--fuzzy-name-matching`
+A dropped-ambiguous name usually still resolves at parse time: fuzzy name matching
 is date-aware, so two people who never served simultaneously (Payne Sr./Jr., the two
 Duncan Hunters) are separated by the trip dates. For the rare name shared by two people
 serving *at the same time* (Mike Rogers of Michigan and Mike Rogers of Alabama,
@@ -351,7 +353,7 @@ uv run ruff check official_foreign_travel/
 
 ## Troubleshooting
 
-### "YAML file not found" (only relevant to `--fuzzy-name-matching`)
+### "YAML file not found" (required for the default fuzzy name matching)
 
 ```bash
 oft-download-legislators

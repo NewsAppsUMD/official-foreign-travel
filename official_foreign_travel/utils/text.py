@@ -36,7 +36,7 @@ def clean_cell(value: str, default: str = "") -> str:
     Returns:
         Cleaned string
     """
-    value = re.sub(r"\.+$", "", value.strip()).strip()
+    value = re.sub(r"[\s.]+$", "", value.strip()).strip()
     return value if value else default
 
 
@@ -84,18 +84,49 @@ def normalize_name(name: str, charset: Optional[set] = None) -> str:
     return name.strip()
 
 
+# Congressional honorifics (Hon/Rep/Sen) may appear in the source without a
+# trailing period -- a meaningful minority of 1990s reports write "Hon
+# Charles Wilson" rather than "Hon. Charles Wilson". Detecting the
+# period-less form lets `_member_lookup_variants` generate HON.-prefixed
+# keys for them. Non-congressional honorifics (Mr/Ms/Dr/etc.) overwhelmingly
+# prefix committee staff, and period-less forms of those ("Mr Ben McMakin")
+# are rare; we require the period for those so a bare-looking staffer name
+# doesn't get promoted into the non-congressional fuzzy path.
+_CONGRESSIONAL_HONORIFIC_NO_PERIOD_RE = re.compile(
+    r"^(?:Hon|Rep|Sen)\b\s*",
+    re.IGNORECASE,
+)
+# All other honorifics (and the congressional ones when written with a period)
+# follow the original rule: 2+ letters followed by a dot.
+_HONORIFIC_WITH_PERIOD_RE = re.compile(r"^[a-zA-Z]{2,}\.")
+
+
 def get_honorific(name_value: str) -> str:
     """
-    Extract honorific from name (e.g., 'Hon.', 'Speaker').
+    Extract honorific from name (e.g., 'Hon.', 'Hon', 'Speaker').
+
+    Congressional honorifics (Hon/Rep/Sen) are recognized with or without a
+    trailing period; all others require a period (the original behavior).
 
     Args:
         name_value: Full name string
 
     Returns:
-        Honorific prefix or empty string
+        Honorific prefix (with a trailing period normalized in) or empty string.
     """
-    match = re.match(r"^[a-zA-Z]{2,}\.", name_value)
-    return match.group(0) if match else ""
+    # Try the congressional no-period form first -- "Hon Charles Wilson"
+    # should be detected as "Hon." even though there's no period.
+    match = _CONGRESSIONAL_HONORIFIC_NO_PERIOD_RE.match(name_value)
+    if match:
+        token = match.group(0).rstrip(". \t").rstrip()
+        if token:
+            return token + "." if not token.endswith(".") else token
+    # Fall back to the period-required form for all other honorifics
+    # (Mr./Ms./Dr./Rev./Adm./etc.).
+    match = _HONORIFIC_WITH_PERIOD_RE.match(name_value)
+    if match:
+        return match.group(0)
+    return ""
 
 
 def split_countries(country_raw: str) -> list:

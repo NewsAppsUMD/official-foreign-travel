@@ -265,3 +265,169 @@ class TestBoundaryCollisions:
             assert result.confidence < LOW_CONFIDENCE_THRESHOLD
         finally:
             layout_module._refine_boundary = original
+
+
+class TestLayoutFromDataRows:
+    """Shape 3: when the header label block is missing or too garbled to parse,
+    the layout can still be recovered from data-row gutter detection alone.
+
+    Two real cases trigger this:
+    - 2009q1jan08-002 (Brussels): the header was dropped entirely; data rows
+      start immediately after the title with no "Name of Member" label.
+    - 2009q3sep16-000 (Bosnia): the header window is found but "Arrival" is
+      missing/garbled ("2Arrival2"), so _label_positions returns None.
+
+    Both have clean data rows in the standard 12-column layout (11 gutters).
+    The fallback requires exactly 11 gutters -- fewer means a non-standard
+    layout (1994-era 5-column) or a garbled PDF artifact, both of which stay
+    LAYOUT_UNDETECTED rather than risk a wrong layout.
+    """
+
+    # Standard 12-column data rows (name, arrival, departure, country, 8 cost).
+    # Built to produce exactly 11 all-space gutters between columns.
+    DATA_ROWS = [
+        "Robert F. Reeves.......................    11/24       11/27   Belgium..................  ...........       514.07  ...........      7011.62  ...........       215.00  ...........      7740.69",
+        "Teri Morgan............................    11/24       11/27   Belgium..................  ...........       514.07  ...........      7011.62  ...........       215.00  ...........      7740.69",
+        "Kyle Anderson..........................    11/24       11/27   Belgium..................  ...........       514.07  ...........      7011.62  ...........       215.00  ...........      7740.69",
+        "Karina Newton..........................    11/24       11/27   Belgium..................  ...........       514.07  ...........      7011.62  ...........       215.00  ...........      7740.69",
+        "Catherine Cooke........................    11/24       11/30   Belgium..................  ...........       514.07  ...........      7011.62  ...........       215.00  ...........      7740.69",
+        "Jeff Gold..............................    11/24       11/27   Belgium..................  ...........       514.07  ...........      7011.62  ...........       215.00  ...........      7740.69",
+        "Kirsten Gullickson.....................    11/24       11/30   Belgium..................  ...........       514.07  ...........      7011.62  ...........       215.00  ...........      7740.69",
+        "John Clocker...........................    11/24       11/30   Belgium..................  ...........       514.07  ...........      7011.62  ...........       215.00  ...........      7740.69",
+    ]
+
+    def test_recovers_layout_from_data_rows_only(self):
+        from official_foreign_travel.parsing.layout import _layout_from_data_rows
+
+        layout = _layout_from_data_rows(self.DATA_ROWS)
+        assert layout is not None
+        assert layout.data_row_derived is True
+        assert len(layout.cost_columns) == 8
+        assert layout.name.start == 0
+        # Confidence above LOW_CONFIDENCE_THRESHOLD so it's not flagged low-confidence
+        assert layout.confidence >= 0.8
+
+    def test_layout_from_data_rows_extracts_correct_costs(self):
+        from official_foreign_travel.parsing.layout import _layout_from_data_rows
+
+        layout = _layout_from_data_rows(self.DATA_ROWS)
+        row = self.DATA_ROWS[0]
+        # cost_1 = per_diem USD = 514.07
+        assert layout.cost_columns[1].slice(row).strip() == "514.07"
+        # cost_3 = transport USD = 7011.62
+        assert layout.cost_columns[3].slice(row).strip() == "7011.62"
+        # cost_5 = other USD = 215.00
+        assert layout.cost_columns[5].slice(row).strip() == "215.00"
+        # cost_7 = total USD = 7740.69
+        assert layout.cost_columns[7].slice(row).strip() == "7740.69"
+        # cost_0 = per_diem foreign = dot-filled empty
+        assert layout.cost_columns[0].slice(row).strip() == "..........."
+
+    def test_layout_from_data_rows_extracts_dates_and_country(self):
+        from official_foreign_travel.parsing.layout import _layout_from_data_rows
+
+        layout = _layout_from_data_rows(self.DATA_ROWS)
+        row = self.DATA_ROWS[0]
+        assert layout.arrival.slice(row).strip() == "11/24"
+        assert layout.departure.slice(row).strip() == "11/27"
+        assert layout.country.slice(row).strip().rstrip(".") == "Belgium"
+        assert layout.name.slice(row).strip().rstrip(".") == "Robert F. Reeves"
+
+    def test_too_few_data_rows_returns_none(self):
+        from official_foreign_travel.parsing.layout import _layout_from_data_rows
+
+        assert _layout_from_data_rows(self.DATA_ROWS[:3]) is None
+
+    def test_wrong_gutter_count_returns_none(self):
+        """A non-standard layout (e.g. 1994-era 5-column with 4 gutters) must
+        not produce a data-row-derived layout -- it stays LAYOUT_UNDETECTED."""
+        from official_foreign_travel.parsing.layout import _layout_from_data_rows
+
+        # 5-column layout: name, arrival, departure, country, 1 cost column
+        # = 4 gutters. Not the standard 11.
+        five_col_rows = [
+            "Cathy Brickman........................     1/18        1/23   Slovakia..............................         800.00    ",
+            "Cathy Brickman........................     1/23        1/28   Czech Republic........................       1,150.00    ",
+            "William Freeman.......................     1/18        1/23   Slovakia..............................         800.00    ",
+            "William Freeman.......................     1/23        1/28   Czech Republic........................       1,150.00    ",
+            "Other Person..........................     1/18        1/23   Slovakia..............................         800.00    ",
+            "Other Person..........................     1/23        1/28   Czech Republic........................       1,150.00    ",
+        ]
+        assert _layout_from_data_rows(five_col_rows) is None
+
+    def test_detect_layout_falls_back_when_header_missing(self):
+        """Brussels shape: no 'Name of Member' label at all. detect_layout
+        should fall back to _layout_from_data_rows rather than returning None."""
+        block_lines = [
+            "REPORT OF EXPENDITURES FOR OFFICIAL FOREIGN TRAVEL, DELEGATION TO BRUSSELS",
+            "",
+            "",
+            "",
+        ] + self.DATA_ROWS
+        layout = detect_layout(block_lines, self.DATA_ROWS)
+        assert layout is not None
+        assert layout.data_row_derived is True
+        assert "LAYOUT_UNDETECTED" not in "check"  # layout recovered, not None
+
+    def test_detect_layout_falls_back_when_label_positions_none(self):
+        """Bosnia shape: 'Name of Member' label is present but 'Arrival' is
+        missing/garbled, so _label_positions returns None. detect_layout
+        should fall back to _layout_from_data_rows."""
+        # Header has "Name of Member" but NO "Arrival" label (Bosnia shape).
+        block_lines = [
+            "REPORT OF EXPENDITURES FOR OFFICIAL FOREIGN TRAVEL, DELEGATION TO BOSNIA",
+            "-----------------------------------------------------------------------------",
+            "                                                 Date                                           Per diem             Transportation",
+            "                                        ----------------------                           ---------------------------------------------------",
+            "                                                                                                        U.S. dollar               U.S. dollar",
+            "        Name of Member or employee                                       Country             Foreign     equivalent    Foreign     equivalent",
+            "                                                    Departure                               currency      or U.S.     currency      or U.S.",
+            "                                                                                                          currency                  currency",
+            "-----------------------------------------------------------------------------------------------------------",
+        ] + self.DATA_ROWS
+        layout = detect_layout(block_lines, self.DATA_ROWS)
+        assert layout is not None
+        assert layout.data_row_derived is True
+
+    def test_no_header_and_no_data_returns_none(self):
+        """Safety: no header and no data rows -> None (LAYOUT_UNDETECTED)."""
+        assert detect_layout(["not a real table", "no headers here"], []) is None
+
+    def test_real_brussels_block_recovers_layout(self):
+        """End-to-end: the real 2009q1jan08.txt Brussels block whose header
+        was merged onto the title line (so _label_positions returns None)
+        recovers a data-row-derived layout. There are two Brussels blocks in
+        this file -- block 0 has a proper header, block 2 has the merged
+        header. Pick the one where label extraction fails."""
+        from official_foreign_travel.parsing.segmenter import segment_tables
+        from official_foreign_travel.parsing.layout import _find_header_window, _label_positions
+
+        text = (FIXTURES.parent.parent / "report_text" / "2009q1jan08.txt").read_text(
+            errors="replace"
+        )
+        blocks = segment_tables(text, "2009q1jan08.txt")
+        brussels = next(
+            b for b in blocks
+            if "BRUSSELS" in b.title_raw.upper()
+            and _find_header_window(b.lines) is not None
+            and _label_positions(_find_header_window(b.lines)) is None
+        )
+        layout = detect_layout(brussels.lines, data_lines_for(brussels))
+        assert layout is not None
+        assert layout.data_row_derived is True
+        assert len(layout.cost_columns) == 8
+
+    def test_real_bosnia_block_recovers_layout(self):
+        """End-to-end: the real 2009q3sep16.txt Bosnia block (whose header is
+        found but 'Arrival' is missing) recovers a data-row-derived layout."""
+        from official_foreign_travel.parsing.segmenter import segment_tables
+
+        text = (FIXTURES.parent.parent / "report_text" / "2009q3sep16.txt").read_text(
+            errors="replace"
+        )
+        blocks = segment_tables(text, "2009q3sep16.txt")
+        bosnia = next(b for b in blocks if "BOSNIA" in b.title_raw.upper())
+        layout = detect_layout(bosnia.lines, data_lines_for(bosnia))
+        assert layout is not None
+        assert layout.data_row_derived is True
+        assert len(layout.cost_columns) == 8

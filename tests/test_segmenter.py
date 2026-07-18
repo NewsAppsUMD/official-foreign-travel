@@ -53,6 +53,80 @@ class TestSegmentTables:
     def test_no_header_yields_no_tables(self):
         assert segment_tables("just some unrelated text\n", "empty.txt") == []
 
+    def test_continued_block_merges_into_previous_match(self):
+        """A `--Continued` header on the next page is one logical table with
+        the prior block. segment_tables should merge the two before returning,
+        so the merged block carries both the original data rows and the
+        Continued block's trailing Committee total row."""
+        text = (
+            "REPORT OF EXPENDITURES FOR OFFICIAL FOREIGN TRAVEL, COMMITTEE ON "
+            "AGRICULTURE, EXPENDED BETWEEN JULY 1 AND SEPT. 30, 1994\n"
+            "----------------------------------------------------------------\n"
+            "  Name of Member or employee     Country      Per diem\n"
+            "  Arrival  Departure                          U.S. dollar\n"
+            "----------------------------------------------------------------\n"
+            "Joan T. Rose........    8/22   8/25   Korea........  785.00\n"
+            "[[Page H220]]\n"
+            "REPORT OF EXPENDITURES FOR OFFICIAL FOREIGN TRAVEL, COMMITTEE ON "
+            "AGRICULTURE, EXPENDED BETWEEN JULY 1 AND SEPT. 30, 1994--Continued\n"
+            "----------------------------------------------------------------\n"
+            "  Name of Member or employee     Country      Per diem\n"
+            "  Arrival  Departure                          U.S. dollar\n"
+            "----------------------------------------------------------------\n"
+            "      Committee total........  ........  ........  785.00\n"
+        )
+        blocks = segment_tables(text, "synthetic.txt")
+        assert len(blocks) == 1
+        assert "--Continued" not in blocks[0].title_raw
+        assert blocks[0].table_index == 0
+        # Merged block has the data row AND the Committee total row
+        joined = "\n".join(blocks[0].lines)
+        assert "Joan T. Rose" in joined
+        assert "Committee total" in joined
+
+    def test_continued_block_without_match_stays_standalone(self):
+        """A `--Continued` header with no preceding matching title (e.g. the
+        previous block was a different committee) is kept as its own block
+        rather than silently dropped."""
+        text = (
+            "REPORT OF EXPENDITURES FOR OFFICIAL FOREIGN TRAVEL, COMMITTEE ON "
+            "AGRICULTURE, EXPENDED BETWEEN JULY 1 AND SEPT. 30, 1994\n"
+            "----------------------------------------------------------------\n"
+            "  Name of Member or employee     Country      Per diem\n"
+            "----------------------------------------------------------------\n"
+            "Joan T. Rose........    8/22   8/25   Korea........  785.00\n"
+            "REPORT OF EXPENDITURES FOR OFFICIAL FOREIGN TRAVEL, COMMITTEE ON "
+            "FOREIGN AFFAIRS, EXPENDED BETWEEN JULY 1 AND SEPT. 30, 1994--Continued\n"
+            "----------------------------------------------------------------\n"
+            "      Committee total........  ........  ........  1000.00\n"
+        )
+        blocks = segment_tables(text, "synthetic.txt")
+        assert len(blocks) == 2
+        assert any("--Continued" in b.title_raw for b in blocks)
+
+    def test_continued_block_indices_renumbered(self):
+        """After a merge, subsequent blocks' table_index values are renumbered
+        to be contiguous (no gap where the Continued block used to be)."""
+        text = (
+            "REPORT OF EXPENDITURES FOR OFFICIAL FOREIGN TRAVEL, COMMITTEE ON "
+            "AGRICULTURE, EXPENDED BETWEEN JULY 1 AND SEPT. 30, 1994\n"
+            "----------------------------------------------------------------\n"
+            "  Name of Member or employee     Country      Per diem\n"
+            "----------------------------------------------------------------\n"
+            "Joan T. Rose........    8/22   8/25   Korea........  785.00\n"
+            "REPORT OF EXPENDITURES FOR OFFICIAL FOREIGN TRAVEL, COMMITTEE ON "
+            "AGRICULTURE, EXPENDED BETWEEN JULY 1 AND SEPT. 30, 1994--Continued\n"
+            "----------------------------------------------------------------\n"
+            "      Committee total........  ........  ........  785.00\n"
+            "REPORT OF EXPENDITURES FOR OFFICIAL FOREIGN TRAVEL, COMMITTEE ON "
+            "RULES, EXPENDED BETWEEN JULY 1 AND SEPT. 30, 1994\n"
+            "----------------------------------------------------------------\n"
+            "      Committee total........  ........  ........  100.00\n"
+        )
+        blocks = segment_tables(text, "synthetic.txt")
+        assert [b.table_index for b in blocks] == [0, 1]
+        assert "RULES" in blocks[1].title_raw
+
 
 @pytest.mark.parametrize(
     "filename",

@@ -26,7 +26,13 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def cell(amount=None):
-    return CostCell(amount=Decimal(amount) if amount is not None else None, raw="")
+    # Mirror real source conventions: dot-fill when empty, the amount
+    # string when present. validate.py uses `raw` to distinguish a
+    # source-declared total from one it computed, so a set amount with
+    # an empty-string raw would be misread as "we computed it."
+    if amount is None:
+        return CostCell(amount=None, raw="...........")
+    return CostCell(amount=Decimal(amount), raw=str(amount))
 
 
 def group(amount=None):
@@ -221,8 +227,12 @@ class TestApplyLlmFallback:
             table_index=0,
             flags=["LAYOUT_UNDETECTED"],
         )
-        # LLM draft where the declared total doesn't match its own per-diem/transportation/
-        # other components -> fails ROW_SUM_MISMATCH on validation.
+        # LLM draft where the declared total doesn't match its components ->
+        # fails ROW_SUM_MISMATCH on validation. Use a negative per_diem
+        # with a total that doesn't match the absolute value (not the
+        # refund shape, which downgrades to ROW_TOTAL_NEGATIVE_PER_DIEM).
+        # Positive/negative-delta segments with populated components now
+        # downgrade to informational flags and would pass validation.
         bad_segment = TravelSegment(
             arrival_date=date(2018, 1, 5),
             departure_date=date(2018, 1, 8),
@@ -230,10 +240,10 @@ class TestApplyLlmFallback:
             departure_raw="1/8",
             country_raw="Testland",
             costs=Costs(
-                per_diem=group(),
+                per_diem=group("-100.00"),
                 transportation=group(),
                 other=group(),
-                total=group("999999.00"),
+                total=group("200.00"),
             ),
         )
         bad_repair = make_report(

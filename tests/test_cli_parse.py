@@ -64,6 +64,26 @@ class TestParseCli:
 
         assert all_count >= default_count
 
+    def test_fuzzy_name_matching_is_default_on(self, tmp_path, monkeypatch):
+        """The default run resolves more travelers than --no-fuzzy-name-matching,
+        because fuzzy matching (plus the date-verified and disambiguation paths
+        that depend on the NameMatcher) recovers travelers exact matching misses."""
+        out_default = tmp_path / "default.json"
+        run_cli([str(FIXTURES), str(out_default)], monkeypatch)
+        default_data = json.loads(out_default.read_text())
+        default_matched = sum(
+            1 for r in default_data["reports"] for t in r["travelers"] if t.get("bioguide_id")
+        )
+
+        out_nofuzzy = tmp_path / "nofuzzy.json"
+        run_cli([str(FIXTURES), str(out_nofuzzy), "--no-fuzzy-name-matching"], monkeypatch)
+        nofuzzy_data = json.loads(out_nofuzzy.read_text())
+        nofuzzy_matched = sum(
+            1 for r in nofuzzy_data["reports"] for t in r["travelers"] if t.get("bioguide_id")
+        )
+
+        assert default_matched > nofuzzy_matched
+
 
 class TestApplyCorrections:
     def test_correction_is_merged_into_output(self, tmp_path, monkeypatch):

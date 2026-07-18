@@ -73,6 +73,12 @@ class TableLayout:
     ]  # 8: pd_fc, pd_usd, tr_fc, tr_usd, ot_fc, ot_usd, tot_fc, tot_usd
     confidence: float
     fingerprint: tuple[int, ...]
+    # True when the layout was derived entirely from data-row gutter detection
+    # because the header label block was missing or too garbled to parse.
+    # Consumers use this to flag the report LAYOUT_INFERRED_FROM_DATA so
+    # downstream users can distinguish "header parsed cleanly" from "header
+    # was garbled, layout recovered from data rows."
+    data_row_derived: bool = False
 
 
 def _find_header_window(lines: list[str]) -> Optional[list[str]]:
@@ -254,6 +260,49 @@ def _refine_boundary(guess: int, data_lines: Sequence[str]) -> tuple[int, bool]:
     return guess, False
 
 
+def _layout_from_data_rows(data_lines: Sequence[str]) -> Optional[TableLayout]:
+    """Construct a layout entirely from data-row gutter detection, for tables
+    whose header label block is missing or too garbled to parse.
+
+    The standard 12-column layout (name, arrival, departure, country, 8 cost
+    columns) produces exactly 11 all-space gutters between columns. This
+    fallback requires exactly 11 gutters -- fewer means a non-standard layout
+    (e.g. 1994-era 5-column) or a garbled PDF-extraction artifact, both of
+    which are left to LAYOUT_UNDETECTED rather than risk a wrong layout.
+
+    Confidence is set to 0.85 (above LOW_CONFIDENCE_THRESHOLD=0.8): the
+    column structure is unambiguous from the data rows even though the header
+    was garbled, but the absence of header cross-checking warrants a flag
+    (LAYOUT_INFERRED_FROM_DATA) so consumers can distinguish.
+    """
+    if len(data_lines) < GUTTER_MIN_DATA_ROWS:
+        return None
+    gutters = _detect_gutter_starts(data_lines, country_pos=0)
+    # 11 gutters = 4 field boundaries (name/arrival/departure/country) +
+    # 7 inter-cost boundaries = 12 columns total, the standard layout.
+    if len(gutters) != NUM_COST_COLUMNS + 3:
+        return None
+    positions = [0, *gutters]
+    names = ["name", "arrival", "departure", "country"] + [
+        f"cost_{i}" for i in range(NUM_COST_COLUMNS)
+    ]
+    spans: dict[str, ColumnSpan] = {}
+    for i, name in enumerate(names):
+        end = positions[i + 1] if i + 1 < len(positions) else None
+        spans[name] = ColumnSpan(start=positions[i], end=end)
+    cost_spans = tuple(spans[f"cost_{i}"] for i in range(NUM_COST_COLUMNS))
+    return TableLayout(
+        name=spans["name"],
+        arrival=spans["arrival"],
+        departure=spans["departure"],
+        country=spans["country"],
+        cost_columns=cost_spans,
+        confidence=0.85,
+        fingerprint=tuple(positions),
+        data_row_derived=True,
+    )
+
+
 def detect_layout(block_lines: list[str], data_lines: Sequence[str]) -> Optional[TableLayout]:
     """
     Detect column boundaries for a table.
@@ -267,11 +316,19 @@ def detect_layout(block_lines: list[str], data_lines: Sequence[str]) -> Optional
     """
     window = _find_header_window(block_lines)
     if window is None:
-        return None
+        # No "Name of Member" label at all (e.g. 2009q1jan08 Brussels block,
+        # where the header was dropped entirely and data rows start immediately
+        # after the title). The data rows themselves still show the column
+        # structure via all-space gutters -- try to recover the layout from
+        # them before giving up with LAYOUT_UNDETECTED.
+        return _layout_from_data_rows(data_lines)
 
     labels = _label_positions(window)
     if labels is None:
-        return None
+        # Header window was found but label extraction failed (e.g. 2009q3sep16
+        # Bosnia block, where "Arrival" is missing or embedded as "2Arrival2"
+        # so the word-boundary regex doesn't match). Same data-row fallback.
+        return _layout_from_data_rows(data_lines)
 
     cost_positions = labels["cost_positions"]
     expected_cost_count = len(cost_positions) == NUM_COST_COLUMNS

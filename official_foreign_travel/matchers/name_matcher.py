@@ -457,3 +457,20 @@ class NameMatcher:
 
         member = self.members_dict.get(bioguide_id)
         return member.get("name") if member else None
+
+    def was_serving(self, bioguide_id: str, year: int, window: int = 1) -> bool:
+        """Return True if `bioguide_id` was in Congress during `year` ± `window`.
+
+        Used to verify that an exact-name match against `members.csv` (which
+        keys every entry as `HON. <name>`) is a member who was actually
+        serving at the time of the report, not a staffer with the same name
+        as a past or future member.
+        """
+        if not self._initialized:
+            self.initialize()
+        for y in range(year - window, year + window + 1):
+            for month in range(1, 13):
+                idx = self.members_index.get((y, month))
+                if idx and bioguide_id in idx:
+                    return True
+        return False

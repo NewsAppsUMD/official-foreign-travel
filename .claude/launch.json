@@ -1,0 +1,20 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "oft-review",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "oft-review",
+        "report_text/",
+        "output.json",
+        "--corrections",
+        "/private/tmp/claude-501/-Users-dwillis-code-official-foreign-travel/f75c607e-c7ef-41a6-bc88-00c80c43037c/scratchpad/oft-review/verify_corrections.json",
+        "--port",
+        "8766"
+      ],
+      "port": 8766
+    }
+  ]
+}

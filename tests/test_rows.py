@@ -135,3 +135,129 @@ class TestExtractRows:
                 >= len([line for b in blocks for line in b.lines if CANDIDATE_RE.search(line[:80])])
                 - 5
             )  # small slack for genuinely-unparseable rows within low-confidence tables
+
+    def test_us_departure_leg_creates_partial_segment_with_name(self):
+        """First row of a trip often shows only the departure date (no foreign
+        arrival, since the trip started from the U.S.). The name on that row
+        must be captured so the following foreign legs attach to the right
+        traveler instead of becoming an orphan flagged
+        SEGMENT_WITHOUT_TRAVELER_NAME."""
+        block = find_block("1995q1feb09.txt", "COMMISSION ON SECURITY AND COOPERATION")
+        travelers, total, flags = rows_for(block)
+        assert "SEGMENT_WITHOUT_TRAVELER_NAME" not in flags
+        mccloskey = next(t for t in travelers if "McCloskey" in t.name)
+        assert len(mccloskey.segments) == 2
+        # First segment: US departure -- arrival cell empty, only departure date.
+        us_leg = mccloskey.segments[0]
+        assert us_leg.arrival_raw == ""
+        assert us_leg.departure_raw == "7/6"
+        assert "United States" in us_leg.country_raw
+        # Second segment: the foreign leg.
+        assert mccloskey.segments[1].arrival_raw == "7/7"
+        assert mccloskey.segments[1].departure_raw == "7/11"
+
+    def test_code_label_row_with_empty_dates_carries_name_forward(self):
+        """A CODEL label-row names the traveler with empty arrival/departure
+        cells; the itinerary follows on subsequent rows. The name must be
+        carried forward so the next dated row attaches to it."""
+        block = find_block("2009q3sep16_education_labor.txt", "EDUCATION AND LABOR")
+        travelers, total, flags = rows_for(block)
+        # No orphan traveler in this table.
+        assert "SEGMENT_WITHOUT_TRAVELER_NAME" not in flags
+        # The first traveler with a Kuwait segment should have a real name,
+        # not be empty.
+        assert any("Sablan" in t.name for t in travelers)
+
+    def test_incomplete_date_row_carries_name_forward(self):
+        """A name row with incomplete date tokens ('1/' with no day) must
+        still capture the name so the next row with full dates attaches to
+        it. Without this, the traveler would be orphaned and flagged
+        SEGMENT_WITHOUT_TRAVELER_NAME."""
+        block = find_block("1998q1mar31_france_vietnam.txt", "TRAVEL TO FRANCE, VIETNAM")
+        travelers, total, flags = rows_for(block)
+        assert "SEGMENT_WITHOUT_TRAVELER_NAME" not in flags
+        dinh = next(t for t in travelers if "Dinh" in t.name)
+        assert len(dinh.segments) >= 1
+        assert dinh.segments[0].country_raw == "Vietnam"
+
+
+class TestTotalRowRecognition:
+    """TOTAL_ROW_RE tolerates the source-typo variants of `Committee total`
+    found across the corpus. Without this, every table with a typo'd total
+    row was flagged MISSING_COMMITTEE_TOTAL even though the row was visibly
+    present in source."""
+
+    def test_commitee_typo_total_recognized(self):
+        """`Commitee total` (missing one 't') -- the most common prefix typo."""
+        block = find_block("1994q1feb10_foreign_affairs.txt", "COMMITTEE ON FOREIGN AFFAIRS")
+        _, total, _ = rows_for(block)
+        assert total is not None
+        assert total.total.us_dollar.amount is not None
+
+    def test_committee_totals_plural_recognized(self):
+        """`Committee totals` (plural 's') -- appears in dozens of 1994-1997 reports."""
+        block = find_block("1994q1feb10_mexico.txt", "DELEGATION TO MEXICO")
+        _, total, _ = rows_for(block)
+        assert total is not None
+        assert total.total.us_dollar.amount is not None
+
+    def test_committee_tota_semicolon_recognized(self):
+        """`Committee tota;` (semicolon for 'l') -- OCR-style source typo."""
+        block = find_block("1994q1feb10_wessel.txt", "MICHAEL R. WESSEL")
+        _, total, _ = rows_for(block)
+        assert total is not None
+        assert total.total.us_dollar.amount is not None
+
+    def test_grand_total_for_pages_recognized(self):
+        """`Grand total for pages 1 thru 3` -- multi-page committee total."""
+        block = find_block("2011q4nov01_transportation.txt", "TRANSPORTATION AND INFRASTRUCTURE")
+        _, total, _ = rows_for(block)
+        assert total is not None
+        assert total.total.us_dollar.amount is not None
+
+    def test_committee_total_with_footnote_marker_recognized(self):
+        """`Committee Total\\3\\........` -- footnote marker between token and dot-fill."""
+        block = find_block("1994q2may17_natural_resources.txt", "NATURAL RESOURCES")
+        _, total, _ = rows_for(block)
+        assert total is not None
+        assert total.total.us_dollar.amount is not None
+
+    def test_codel_total_recognized(self):
+        """`CODEL Total` -- a CODEL-level summary row at the bottom of a table."""
+        block = find_block("2009q1feb11_agriculture.txt", "COMMITTEE ON AGRICULTURE")
+        _, total, _ = rows_for(block)
+        assert total is not None
+        assert total.total.us_dollar.amount is not None
+
+    def test_committee_total_with_two_footnote_markers_recognized(self):
+        """`Committee total \\1\\ \\2\\..........` -- two footnote markers
+        between the token and the dot-fill. 2008q4dec10 Science and Technology.
+        The prior (?:\\\\d+\\\\)? matched at most one marker, so this row was
+        missed and the report was flagged MISSING_COMMITTEE_TOTAL."""
+        block = find_block("2008q4dec10_science.txt", "SCIENCE AND TECHNOLOGY")
+        _, total, _ = rows_for(block)
+        assert total is not None
+        assert total.total.us_dollar.amount == Decimal("16354.60")
+
+
+class TestCrossBlockContinuedMerge:
+    """When a committee's report spans a page break, the next page begins
+    with `REPORT OF EXPENDITURES...--Continued`. segment_tables merges the
+    two into one block so the original data rows and the Continued block's
+    trailing Committee total / supplemental rows are parsed together."""
+
+    def test_continued_table_yields_committee_total(self):
+        """The Agriculture report in 1995q1feb09.txt is split across a page
+        break: data rows on page H219, Committee total on H220 under a
+        `--Continued` header. The merge lets extract_rows see both."""
+        block = find_block(
+            "1995q1feb09_agriculture_with_continued.txt", "COMMITTEE ON AGRICULTURE"
+        )
+        travelers, total, flags = rows_for(block)
+        assert total is not None
+        assert total.total.us_dollar.amount is not None
+        # The traveler's data is in the original block; their Commercial
+        # airfare supplement is in the Continued block. Both should attach.
+        rose = next(t for t in travelers if "Rose" in t.name)
+        assert len(rose.segments) >= 1
+        assert "SEGMENT_WITHOUT_TRAVELER_NAME" not in flags

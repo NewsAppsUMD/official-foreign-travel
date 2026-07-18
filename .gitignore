@@ -76,3 +76,5 @@ dmypy.json
 
 # ruff
 .ruff_cache/
+output.json
+corrections.json

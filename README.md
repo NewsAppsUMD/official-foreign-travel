@@ -22,8 +22,8 @@ uv run oft-review report_text/ output.json   # review flagged reports in a brows
 ```
 
 See **[TECHNICAL_README.md](TECHNICAL_README.md)** for full installation, CLI, and API
-documentation — including `--llm-fallback`, `--fuzzy-name-matching`, and merging human
-corrections back in with `--apply-corrections`.
+documentation — including `--llm-fallback`, `--no-fuzzy-name-matching` (fuzzy matching is
+on by default), and merging human corrections back in with `--apply-corrections`.
 
 ## Reviewing Flagged Reports
 

@@ -40,7 +40,419 @@ RULE_RE = re.compile(r"^\s*-{10,}")
 # "Hon. Al Green \4\", "William Patry\4\") -- part of the source text, so
 # they stay in the stored name, but they must not reach the match keys.
 NAME_FOOTNOTE_TAIL_RE = re.compile(r"(?:\s*(?:\*+|\\\d+\\|\(\d+\)))+\s*$")
+# Trailing fixed-width padding residue (dots, whitespace) plus the lone
+# backslash that's the leading `\` of a `\1/6\` date token (DATE_TOKEN_RE
+# matches `1/6` without the backslashes, so the leading `\` bleeds into the
+# name slice). Stripped before generating lookup keys.
+NAME_TRAILING_GUNK_RE = re.compile(r"[\s.\\]+$")
+# Source honorifics that prefix a Member's name. members.csv uses only
+# "HON." for all entries, so the source's honorific is informational, not
+# part of the match key.
+NAME_HONORIFIC_RE = re.compile(
+    r"^(?:Hon|Mr|Ms|Mrs|Dr|Rep|Rev|Sen|Adm|Fr|Amb|Comm|Cong|Maj|Nov|Sgt|Min)\b\.?\s*",
+    re.IGNORECASE,
+)
+# Surname particles in Romance/Teutonic languages; used to recognize
+# multi-word surnames like "de la Garza" or "van der Waals".
+SURNAME_PARTICLES = {
+    "de", "la", "las", "los", "el", "del", "della", "di", "da",
+    "du", "le", "van", "von", "der", "den", "ten", "ter", "te", "y",
+    "al", "ibn",
+}
+# Suffix tokens that members.csv appends to disambiguate a son from a father
+# (or a third-generation honoree). The source may omit them, so we try both
+# with and without.
+NAME_SUFFIX_TOKENS = ["JR", "JR.", "SR", "SR.", "II", "III", "IV"]
 LOW_CONFIDENCE_THRESHOLD = 0.8
+
+NO_EXPENDITURES_RE = re.compile(
+    r"no\s+expenditures\s+during\s+the\s+calendar\s+quarter.*?check\s+the\s+box",
+    re.IGNORECASE | re.DOTALL,
+)
+WRAPPER_INTRO_RE = re.compile(
+    r"Reports\s+concerning\s+the\s+foreign\s+currencies|pursuant\s+to\s+Public\s+Law",
+    re.IGNORECASE,
+)
+
+
+def _is_no_expenditures_form(block_lines: list[str]) -> bool:
+    """True when the block is a 'no expenditures' checkbox form, not a data table.
+
+    The House Clerk's form includes a 'Please Note: If there were no
+    expenditures during the calendar quarter noted above, please check
+    the box at right to so indicate and return. x' line with the checkbox
+    marked. These are legitimate zero-expenditure quarterly filings --
+    the committee reported nothing, not a parse failure. Flag them
+    `NO_EXPENDITURES` rather than `LAYOUT_UNDETECTED`/`LAYOUT_LOW_CONFIDENCE`.
+    """
+    text = " ".join(block_lines)
+    return bool(NO_EXPENDITURES_RE.search(text))
+
+
+def _is_wrapper_intro(title_raw: str) -> bool:
+    """True when the block is a Speaker-Authorized quarterly summary intro paragraph.
+
+    These begin with 'REPORT OF EXPENDITURES FOR OFFICIAL FOREIGN TRAVEL'
+    (so the segmenter splits them as a table) but are followed by 'Reports
+    concerning the foreign currencies... pursuant to Public Law 95-384'
+    prose, not a column-header block or data rows. The real tables follow.
+    Dropping these avoids a junk report with no sponsor, period, or travelers.
+    """
+    return bool(WRAPPER_INTRO_RE.search(title_raw))
+
+
+def _levenshtein(a: str, b: str) -> int:
+    if a == b:
+        return 0
+    if not a:
+        return len(b)
+    if not b:
+        return len(a)
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
+# Parenthetical annotations the source appends to traveler names ("(AL)" state
+# tag, "(Gilman Codel)" delegation note). Not part of the name proper.
+NAME_PARENTHETICAL_RE = re.compile(r"\s*\([^)]*\)\s*$")
+
+
+def _query_name_tokens(name: str) -> tuple[str, str]:
+    """Split an honorific-prefixed source name into (first_token, last_token).
+
+    Strips the honorific, trailing parentheticals, suffix tokens, and
+    fixed-width gunk so the tokens reflect the actual name body. Used by
+    `_disambiguate_ambiguous_match` to verify a fuzzy candidate's first
+    and last name against what the source actually wrote.
+    """
+    cleaned = NAME_FOOTNOTE_TAIL_RE.sub("", name).strip()
+    cleaned = NAME_TRAILING_GUNK_RE.sub("", cleaned).strip().rstrip(",").strip()
+    cleaned = NAME_PARENTHETICAL_RE.sub("", cleaned).strip()
+    m = NAME_HONORIFIC_RE.match(cleaned)
+    body = cleaned[m.end():] if m else cleaned
+    body = body.strip().rstrip(",").strip()
+    tokens = body.split()
+    if len(tokens) > 1 and tokens[-1].upper().rstrip(",.") in NAME_SUFFIX_TOKENS:
+        tokens = tokens[:-1]
+    if not tokens:
+        return "", ""
+    return tokens[0], tokens[-1]
+
+
+def _first_name_match(query_first: str, candidate_first: str) -> bool:
+    """True if the source's first-name token plausibly refers to the candidate's first name.
+
+    Handles single initials ("D." -> "Donald"), exact matches, 1-character
+    typos ("Corinne" -> "Corrine", "Partrick" -> "Patrick"), and prefix
+    abbreviations ("Al" -> "Alcee", "Pat" -> "Patrick"). The 1-edit path is
+    gated by a relative-ratio cap (0.3) so a single edit on a very short
+    name ("Jim" -> "Tim") doesn't count -- that's a staffer coincidence,
+    not a typo of a member's name.
+    """
+    q = query_first.rstrip(".").lower()
+    c = candidate_first.lower()
+    if not q or not c:
+        return False
+    if len(q) == 1:
+        return c.startswith(q)
+    if q == c:
+        return True
+    dist = _levenshtein(q, c)
+    if dist <= 1 and dist / max(len(q), len(c)) <= 0.3:
+        return True
+    if len(q) >= 2 and (c.startswith(q) or q.startswith(c)):
+        return True
+    return False
+
+
+def _surname_match(query_last: str, candidate_last: str) -> bool:
+    """True if the source's surname plausibly matches the candidate's surname.
+
+    Handles exact matches, hyphenated compounds ("Chenoweth" ->
+    "Chenoweth-Hage"), 1-2 character typos ("Gilmor" -> "Gillmor",
+    "LoBionbo" -> "LoBiondo"), and prefix abbreviations. The edit-distance
+    path is gated by a relative-ratio cap (0.3) so a 2-edit difference on a
+    short surname ("Ennis" -> "Enzi", 2/5 = 0.4) doesn't count -- that's a
+    staffer with a coincidentally similar surname, not a typo.
+    """
+    q = query_last.lower().rstrip(",.")
+    c = candidate_last.lower()
+    if not q or not c:
+        return False
+    if q == c:
+        return True
+    parts = c.split("-")
+    if q in parts:
+        return True
+    dist = _levenshtein(q, c)
+    if dist <= 2 and dist / max(len(q), len(c)) <= 0.3:
+        return True
+    if len(q) >= 4 and (c.startswith(q) or q.startswith(c)):
+        return True
+    return False
+
+
+def _disambiguate_ambiguous_match(name: str, matches: list) -> Optional[str]:
+    """Pick a single bioguide from an ambiguous fuzzy result by name verification.
+
+    When `NameMatcher.search_by_name` returns `is_inconclusive` (two or more
+    candidates scored within the ambiguity threshold), the fuzzy score alone
+    can't pick. This tiebreaker checks each candidate's first and last name
+    against the source's actual name tokens: if exactly one candidate's
+    first name AND surname both plausibly match, that's the member the
+    source meant. If both or neither match, the ambiguity is real (a
+    staffer whose name coincidentally resembles two members, or a true
+    same-name collision needing committee context) and we return None so
+    the caller leaves it inconclusive.
+
+    The surname gate is what makes this safe: "Hon. Tim Clancy" fuzzy-matches
+    "Tim Holden" on first name, but "Clancy" != "Holden" so the gate rejects
+    it -- Clancy is a staffer, not a typo of Holden. Without the gate, every
+    staffer whose first name matches a member's would get a wrong bioguide.
+    """
+    qf, ql = _query_name_tokens(name)
+    if not qf or not ql:
+        return None
+    chosen: list[str] = []
+    for m in matches:
+        if _first_name_match(qf, m.first_name) and _surname_match(ql, m.last_name):
+            chosen.append(m.bioguide_id)
+    if len(chosen) == 1:
+        return chosen[0]
+    return None
+
+
+def _member_lookup_variants(name: str, honorific: Optional[str]) -> list[str]:
+    """Generate `member_index` lookup keys for an honorific-prefixed name.
+
+    `members.csv` keys every entry as `HON. <name>` -- "HON." is the only
+    honorific form in the index, regardless of whether the source said
+    "Rep.", "Sen.", "Dr.", or "Hon.". The source's honorific is informational
+    (used to gate fuzzy matching), not part of the match key.
+
+    Safety gate: only congressional honorifics ("Hon.", "Rep.", "Sen.")
+    trigger the full variant set. Bare names (no honorific) and other
+    honorifics ("Mr.", "Ms.", "Dr.", "Rev.", etc., which in this corpus
+    overwhelmingly prefix committee staff) fall back to the original
+    `name.upper()` lookup -- which won't match `HON. ...` entries, so they
+    fail through to the honorific-gated fuzzy matcher. This preserves the
+    safety guarantee documented in `_match_member`: bare names are not
+    fuzzy-matched to members by surname, because that produces confident-
+    looking but wrong bioguide IDs (e.g. multiple different staffers all
+    matched to the same member by surname).
+
+    Variants are generated in order of decreasing specificity, so the first
+    match is the most precise form available:
+
+    1. Full body with `HON.` prefix.
+    2. Period after a single-letter first initial: "E de la Garza" -> "E. de la Garza".
+    3. First + last (strip middle initials): "William D. Lipinski" -> "William Lipinski".
+    4. Strip leading single-letter initial: "Y. Tim Hutchinson" -> "Tim Hutchinson".
+    5. Surname-only (single token): last token.
+    6. Multi-token surname (with particles): "de la Garza" -> "DE LA GARZA".
+    7. With appended suffix: "Donald Payne" -> "Donald Payne, JR" / "Donald Payne JR".
+       (members.csv stores members with the same name as their father with a
+       suffix; the source may omit it.)
+
+    Trailing fixed-width padding residue (dots, whitespace, lone backslash)
+    is stripped first so it doesn't pollute any of the variants. Trailing
+    parenthetical annotations ("(AL)" state tag, "(Codel)" delegation note)
+    are also stripped -- they aren't part of the name proper (NAME_PARENTHETICAL_RE
+    is the same regex _query_name_tokens uses for the inconclusive-path
+    tiebreaker), and leaving them in the key blocks committee-based
+    disambiguation: "Hon. Mike Rogers (AL)" would otherwise generate
+    "HON. MIKE ROGERS (AL)" which never matches the disambiguation_index's
+    "HON. MIKE ROGERS" key, even when the sponsor_code resolves correctly.
+    """
+    cleaned = NAME_TRAILING_GUNK_RE.sub("", name).strip().rstrip(",").strip()
+    cleaned = NAME_PARENTHETICAL_RE.sub("", cleaned).strip()
+    if not cleaned:
+        return []
+    # Only generate HON.-prefixed variants for congressional honorifics.
+    # Other names (bare names, "Mr.", "Dr.", etc.) fall through with just
+    # the source-form lookup, which doesn't match members.csv's "HON. ..." keys.
+    hkey = (honorific or "").rstrip(".").upper()
+    if hkey not in ("HON", "REP", "SEN"):
+        return [cleaned.upper()]
+
+    m = NAME_HONORIFIC_RE.match(cleaned)
+    body = cleaned[m.end():] if m else cleaned
+    body = body.strip()
+    if not body:
+        return []
+
+    # Strip a trailing suffix token ("JR", ", JR", "JR.", etc.) from the body;
+    # we'll re-append standard forms below.
+    body_tokens = body.split()
+    if len(body_tokens) > 1 and body_tokens[-1].upper().rstrip(",.") in NAME_SUFFIX_TOKENS:
+        body_tokens = body_tokens[:-1]
+    if not body_tokens:
+        return []
+
+    prefix = "HON."
+    upper = " ".join(t.upper() for t in body_tokens)
+
+    keys: list[str] = [f"{prefix} {upper}"]
+
+    # (2) Period after single-letter first initial: "E de la Garza" -> "E. de la Garza"
+    if len(body_tokens[0]) == 1 and not body_tokens[0].endswith("."):
+        spaced = [body_tokens[0] + "."] + body_tokens[1:]
+        keys.append(f"{prefix} {' '.join(t.upper() for t in spaced)}")
+
+    # (3) First + last (drop middle initials): "William D. Lipinski" -> "William Lipinski"
+    if len(body_tokens) > 2:
+        keys.append(f"{prefix} {body_tokens[0].upper()} {body_tokens[-1].upper()}")
+
+    # (4) Strip leading single-letter initial: "Y. Tim Hutchinson" -> "Tim Hutchinson"
+    if len(body_tokens) > 2 and len(body_tokens[0].rstrip(".")) == 1:
+        rest = body_tokens[1:]
+        keys.append(f"{prefix} {' '.join(t.upper() for t in rest)}")
+
+    # (5) Surname-only (single token)
+    keys.append(f"{prefix} {body_tokens[-1].upper()}")
+
+    # (6) Multi-token surname with particles: "de la Garza" -> "DE LA GARZA"
+    for n in (2, 3):
+        if len(body_tokens) >= n + 1:
+            tail = body_tokens[-n:]
+            if any(t.lower() in SURNAME_PARTICLES for t in tail[:-1]):
+                keys.append(f"{prefix} {' '.join(t.upper() for t in tail)}")
+
+    # (7) Appended suffix variants -- members.csv stores "Donald Payne, JR";
+    # source may have just "Donald Payne".
+    base = f"{prefix} {upper}"
+    for suffix in NAME_SUFFIX_TOKENS:
+        keys.append(f"{base}, {suffix}")
+        keys.append(f"{base} {suffix}")
+
+    # Deduplicate while preserving order.
+    seen = set()
+    unique: list[str] = []
+    for k in keys:
+        if k not in seen:
+            seen.add(k)
+            unique.append(k)
+    return unique
+
+
+def _bare_name_date_verified_match(
+    name: str,
+    member_index: dict[str, str],
+    name_matcher: NameMatcher,
+    period: Optional[Period],
+) -> Optional[tuple[str, float]]:
+    """Try HON.-prefixed exact lookups for a bare name, gated by date-of-service.
+
+    The source sometimes omits the "Hon." prefix from a member's row, leaving
+    a bare "First Last" (or "First M. Last") name that ``_member_lookup_variants``
+    correctly doesn't generate ``HON.`` variants for (the safety gate blocks
+    fuzzy matching of bare names to members). But some of those bare names are
+    actually members -- the prefix was just dropped. This helper tries the
+    HON.-prefixed exact lookup forms and accepts the match only if the
+    matched bioguide was serving during the report's period (±1 year for the
+    House's filed-next-quarter lag). Without the date gate, a staffer named
+    "Mark Walker" traveling in 2011 would match "HON. MARK WALKER" -> W000819
+    (who served 2015-2019).
+
+    Returns:
+        (bioguide_id, confidence) tuple on a verified match, else None.
+    """
+    if period is None:
+        return None
+    cleaned = NAME_TRAILING_GUNK_RE.sub("", name).strip().rstrip(",").strip()
+    if not cleaned:
+        return None
+    body_tokens = cleaned.split()
+    # Strip a trailing suffix token (JR, III, etc.); members.csv stores those
+    # on the indexed name, and we want the base form for this check.
+    if len(body_tokens) > 1 and body_tokens[-1].upper().rstrip(",.") in NAME_SUFFIX_TOKENS:
+        body_tokens = body_tokens[:-1]
+    if not body_tokens or len(body_tokens) < 2:
+        # Single-token bare names are too ambiguous to date-verify reliably.
+        return None
+
+    upper = " ".join(t.upper() for t in body_tokens)
+    keys: list[str] = [f"HON. {upper}"]
+    # For 3+ token names, also try first + last (drop middle initials).
+    if len(body_tokens) > 2:
+        keys.append(f"HON. {body_tokens[0].upper()} {body_tokens[-1].upper()}")
+
+    for key in keys:
+        bioguide = member_index.get(key)
+        if bioguide and name_matcher.was_serving(bioguide, period.year):
+            return bioguide, 1.0
+    return None
+
+
+def _maiden_name_prefix_match(
+    name: str,
+    matches: list,
+    name_matcher: NameMatcher,
+    period: Optional[Period],
+) -> Optional[tuple[str, float]]:
+    """Recover the maiden-name -> married-name case from a below-threshold fuzzy result.
+
+    A member who marries after an earlier-career source report was filed
+    appears in the source under their maiden surname ("Hon. Stephanie
+    Herseth") while `members.csv` carries the married compound surname
+    ("HON. STEPHANIE HERSETH SANDLIN"). The fuzzy matcher scores the
+    partial-name match below its `min_match_score` (the source surname is
+    only half of the member's indexed surname), so `is_confident` and
+    `is_inconclusive` are both False and the traveler would otherwise fall
+    through to `MEMBER_UNMATCHED`. The top match is nonetheless the right
+    person under a narrow maiden-name gate.
+
+    Gate (all must hold):
+    - A top match exists with `first_name` and `last_name` both populated,
+      and a `period` is available for the date check.
+    - The source's first-name token EXACTLY equals the top match's first
+      name (case-insensitive -- no fuzzy, no initials, no nicknames). The
+      maiden-name case is about surname change, not first-name variation;
+      accepting first-name slack here would let staffers whose first name
+      resembles a member's ride this path.
+    - The source's surname is a strict prefix of the top match's surname:
+      the member surname is longer, the source surname is its start, and
+      the character right after the prefix is a separator (space or
+      hyphen). The separator requirement blocks "Hon. Bob Smith" staffer
+      matching "Bob Smithers" member -- "Smith" is a prefix of "Smithers"
+      but the boundary has no separator, so it's a different name, not a
+      marriage extension. The strict-prefix requirement blocks same-surname
+      staffers: "Hon. Bob Smith" staffer vs "Bob Smith" member has equal
+      surnames, not a prefix relationship.
+    - The matched bioguide was serving during the report's period
+      (+/-1 year for filing lag). Same date gate as the bare-name recovery
+      path: a staffer named "Stephanie Herseth" traveling in 1990 (before
+      the member's term started) must not match H001037.
+
+    Returns:
+        (bioguide_id, score) tuple on a verified match, else None.
+    """
+    if not matches or period is None:
+        return None
+    top = matches[0]
+    if not top.first_name or not top.last_name:
+        return None
+    qf, ql = _query_name_tokens(name)
+    if not qf or not ql:
+        return None
+    if qf.lower() != top.first_name.lower():
+        return None
+    mem_last = top.last_name.lower().rstrip(",.")
+    q_last = ql.lower().rstrip(",.")
+    if len(mem_last) <= len(q_last):
+        return None
+    if not mem_last.startswith(q_last):
+        return None
+    if mem_last[len(q_last)] not in (" ", "-"):
+        return None
+    if not name_matcher.was_serving(top.bioguide_id, period.year):
+        return None
+    return top.bioguide_id, top.score
 
 
 def load_name_index(csv_path: Path) -> dict[str, str]:
@@ -158,9 +570,7 @@ def _match_member(
 
     effective_honorific = honorific or get_honorific(name)
 
-    lookup_keys = [name.upper()]
-    if effective_honorific and not name.upper().startswith(effective_honorific.upper()):
-        lookup_keys.append(f"{effective_honorific} {name}".strip().upper())
+    lookup_keys = _member_lookup_variants(name, effective_honorific)
 
     for key in lookup_keys:
         exact = member_index.get(key)
@@ -177,6 +587,22 @@ def _match_member(
         return None, None, ["MEMBER_UNMATCHED"]
 
     if not effective_honorific:
+        # Bare-name HON.-prefix exact match with date verification.
+        # _member_lookup_variants returned only [cleaned.upper()] for this bare
+        # name, which doesn't match members.csv's "HON. ..." keys. Some of
+        # those bare names are actually members whose source row just omitted
+        # the "Hon." prefix -- try HON.-prefixed forms here, but only accept
+        # if the matched bioguide was actually serving during the report's
+        # period (±1 year for filing lag). A staffer named "Mark Walker"
+        # traveling in 2011 would otherwise match "HON. MARK WALKER" -> W000819
+        # (who served 2015-2019); the date gate rejects that.
+        verified = _bare_name_date_verified_match(
+            name, member_index, name_matcher, period
+        )
+        if verified is not None:
+            bioguide, confidence = verified
+            return bioguide, confidence, ["MEMBER_MATCHED_BY_NAME_DATE"]
+        # No verified bare-name match: fall through to the existing gate.
         # NameMatcher's data is Members of Congress only; it has no way to say
         # "this is staff, not a member" -- it always returns its best-scoring
         # candidate even for a name that isn't a member at all. Bare names
@@ -210,7 +636,33 @@ def _match_member(
     if result.is_confident and result.best_bioguide_id and result.top_match is not None:
         return result.best_bioguide_id, result.top_match.score, ["MEMBER_FUZZY_MATCHED"]
     if result.is_inconclusive:
+        # Two or more candidates scored within the ambiguity threshold. Try
+        # to pick one by verifying first name + surname against the source --
+        # e.g. "Hon. D. Payne" is ambiguous between Donald Payne (P000149)
+        # and Lewis Payne (P000152), but "D." -> Donald and the surname
+        # Payne matches both, so only Donald qualifies. If exactly one
+        # candidate's first and last name both match, that's the member;
+        # otherwise the ambiguity is real and stays inconclusive.
+        chosen = _disambiguate_ambiguous_match(name, result.matches)
+        if chosen is not None:
+            top_match = next((m for m in result.matches if m.bioguide_id == chosen), None)
+            score = top_match.score if top_match is not None else None
+            return chosen, score, ["MEMBER_DISAMBIGUATED_BY_NAME"]
         return None, None, ["MEMBER_MATCH_INCONCLUSIVE"]
+    # Below-threshold single top match. Try the maiden-name-prefix recovery:
+    # a member who married after the source report was filed appears under
+    # their maiden surname in the source ("Hon. Stephanie Herseth") but
+    # under the married compound surname in members.csv ("HON. STEPHANIE
+    # HERSETH SANDLIN"). The fuzzy matcher scores the partial-name match
+    # below min_match_score, but the top result is unambiguously the right
+    # person under a strict maiden-name gate (exact first-name match,
+    # source surname is a strict prefix of the member's compound surname
+    # with a separator at the boundary, member was serving during the
+    # report's period).
+    maiden = _maiden_name_prefix_match(name, result.matches, name_matcher, period)
+    if maiden is not None:
+        bioguide, score = maiden
+        return bioguide, score, ["MEMBER_MATCHED_BY_MAIDEN_NAME"]
     return None, None, ["MEMBER_UNMATCHED"]
 
 
@@ -239,7 +691,7 @@ def assemble_table(
     member_index = member_index or {}
     committee_index = committee_index or {}
 
-    header_info = parse_header(block.title_raw)
+    header_info = parse_header(block.title_raw, source_file=block.source_file)
     flags: list[str] = list(header_info.flags)
 
     sponsor_code = None
@@ -265,9 +717,13 @@ def assemble_table(
     travelers_out: list[Traveler] = []
     committee_total_out: Optional[Costs] = None
 
-    if layout is None:
+    if _is_no_expenditures_form(block.lines):
+        flags.append("NO_EXPENDITURES")
+    elif layout is None:
         flags.append("LAYOUT_UNDETECTED")
     else:
+        if layout.data_row_derived:
+            flags.append("LAYOUT_INFERRED_FROM_DATA")
         if layout.confidence < LOW_CONFIDENCE_THRESHOLD:
             flags.append("LAYOUT_LOW_CONFIDENCE")
 
@@ -362,6 +818,7 @@ def assemble_file(
     return [
         assemble_table(b, member_index, committee_index, name_matcher, disambiguation_index)
         for b in blocks
+        if not _is_wrapper_intro(b.title_raw)
     ]
 
 

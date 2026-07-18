@@ -14,11 +14,30 @@ from typing import Optional
 
 from ..utils.text import clean_cell
 from .costs import CostGroup, Costs, costs_has_data, merge_costs, parse_cost_cell
+from .header import _looks_like_personal_name
 from .layout import TableLayout
 
 DATE_TOKEN_RE = re.compile(r"\d{1,2}/\d{1,2}")
 RULE_RE = re.compile(r"^\s*-{10,}")
-TOTAL_ROW_RE = re.compile(r"^\s*(committee\s+|grand\s+)?total\b", re.IGNORECASE)
+# Tolerates source typos in both the prefix word (Commitee, Committe, Committeee,
+# Committeel, Committtee, Commmittee, Committed, Grant, Commercial) and the
+# "total" token (totals, tota;, tota:, Totals:). The trailing
+# (?:\s+for\s+|\s*\.) anchor requires either dot-fill or a "for ..." continuation
+# after the token, which excludes footnote lines like "\3\ Total cost of all
+# commercial flights." and "* Total air." that begin with non-alphabetic chars.
+# The (?:\s*\\\d+\\)* allows one or more footnote markers between the token and
+# the trailing dot-fill, e.g. "Committee total \1\ \2\.........." in
+# 2008q4dec10 Science and Technology (the prior (?:\\\d+\\)? matched at most one).
+TOTAL_ROW_RE = re.compile(
+    r"^\s*"
+    r"(?:"
+    r"(?:committee|commitee|committe|committeee|committeel|committtee|commmittee|committed|grand|grant|codel|commercial)\s+"
+    r")?"
+    r"tota[a-z;:}]{0,3}"
+    r"(?:\s*\\\d+\\)*"
+    r"(?:\s+for\s+|\s*\.)",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -53,6 +72,21 @@ def _find_date_tokens(zone: str) -> Optional[tuple[re.Match, re.Match]]:
     if len(tokens) < 2:
         return None
     return tokens[0], tokens[1]
+
+
+def _find_single_date_token(zone: str) -> Optional[re.Match]:
+    """Return the lone M/D token when a row carries exactly one date.
+
+    Used for "US departure" / "US return" legs in older reports, where one
+    of the two date cells is left dot-filled because that end of the trip
+    was domestic (no foreign arrival/departure to record). The two-date
+    `_find_date_tokens` path skips these rows entirely, which loses the
+    traveler's name when this is also the first row of a trip.
+    """
+    tokens = list(DATE_TOKEN_RE.finditer(zone))
+    if len(tokens) != 1:
+        return None
+    return tokens[0]
 
 
 def _parse_cost_cells(
@@ -98,6 +132,7 @@ def extract_rows(
     committee_total: Optional[Costs] = None
     table_flags: list[str] = []
     current: Optional[TravelerDraft] = None
+    pending_name: Optional[str] = None
 
     for line_no, line in data_lines:
         if not line.strip() or RULE_RE.match(line):
@@ -114,8 +149,65 @@ def extract_rows(
         costs, cost_flags = _parse_cost_cells(line, layout, footnote_map)
 
         if token_matches is None:
+            single_token = _find_single_date_token(search_zone)
+            if single_token is not None:
+                # A "US departure" / "US return" leg: one of the two date
+                # cells is dot-filled because that end of the trip was
+                # domestic. Treat it as a partial segment so the traveler's
+                # name (when present) is captured, and the following foreign
+                # leg attaches to the right traveler instead of becoming an
+                # orphan flagged SEGMENT_WITHOUT_TRAVELER_NAME.
+                token_start = single_token.start()
+                token_text = single_token.group()
+                in_arrival = (
+                    layout.arrival.end is not None
+                    and token_start >= layout.arrival.start
+                    and token_start < layout.arrival.end
+                )
+                if in_arrival:
+                    arrival_raw = token_text
+                    departure_raw = ""
+                else:
+                    arrival_raw = ""
+                    departure_raw = token_text
+                name = clean_cell(search_zone[:token_start])
+                if not name and pending_name is not None and current is None:
+                    name = pending_name
+                pending_name = None
+                country_raw = clean_cell(layout.country.slice(line))
+                segment = SegmentDraft(
+                    arrival_raw=arrival_raw,
+                    departure_raw=departure_raw,
+                    country_raw=country_raw,
+                    costs=costs,
+                    flags=cost_flags,
+                    source_lines=[line_no],
+                )
+                if name:
+                    current = TravelerDraft(name=name, segments=[segment])
+                    travelers.append(current)
+                elif current is not None:
+                    current.segments.append(segment)
+                else:
+                    current = TravelerDraft(name="", segments=[segment])
+                    travelers.append(current)
+                    table_flags.append("SEGMENT_WITHOUT_TRAVELER_NAME")
+                continue
+
             name = clean_cell(layout.name.slice(line))
             if current is None or not current.segments:
+                # A name row with no usable date tokens can still be the
+                # first row of a traveler -- either the dates are written
+                # incompletely ("1/" with no day) or the row is a CODEL
+                # label-row that names a traveler whose itinerary follows
+                # on the subsequent rows. Carry the name forward so the
+                # next dated row attaches to it instead of becoming an
+                # orphan flagged SEGMENT_WITHOUT_TRAVELER_NAME. The
+                # _looks_like_personal_name guard rejects sub-labels like
+                # "Commercial airfare" (the second word is lowercase) and
+                # multi-line sponsor headings ("Visit to Kuwait, ...").
+                if current is None and name and _looks_like_personal_name(name):
+                    pending_name = name
                 continue
             if name:
                 # A labeled sub-row ("Commercial airfare", "Delegation
@@ -152,6 +244,12 @@ def extract_rows(
 
         first_token, second_token = token_matches
         name = clean_cell(search_zone[: first_token.start()])
+        if not name and pending_name is not None and current is None:
+            # Consume a name carried forward from a prior no-dates row
+            # (incomplete "1/" dates or a CODEL label-row naming the
+            # traveler whose itinerary follows).
+            name = pending_name
+        pending_name = None
         arrival_raw = first_token.group()
         departure_raw = second_token.group()
         leftover = search_zone[second_token.end() :].strip()
