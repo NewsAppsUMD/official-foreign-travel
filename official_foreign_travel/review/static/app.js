@@ -13,6 +13,26 @@ async function fetchReports() {
 
 const listSort = { column: null, ascending: true };
 
+// Persist list filters across page loads, so navigating into a detail page
+// and back doesn't reset the reviewer's place in the queue.
+const FILTER_STORAGE_KEY = "oft-review-list-filters";
+
+function saveListFilters(state) {
+  try {
+    localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(state));
+  } catch (e) {
+    // localStorage unavailable (private mode etc.) -- filters just won't persist
+  }
+}
+
+function loadListFilters() {
+  try {
+    return JSON.parse(localStorage.getItem(FILTER_STORAGE_KEY)) || {};
+  } catch (e) {
+    return {};
+  }
+}
+
 function populateFlagFilter(reports) {
   const select = document.getElementById("flag-filter");
   const flags = Array.from(new Set(reports.flatMap((r) => r.flags))).sort();
@@ -31,8 +51,31 @@ async function renderList() {
   const statusSelect = document.getElementById("status-filter");
   const flagSelect = document.getElementById("flag-filter");
   const flaggedOnly = document.getElementById("flagged-only");
-  const rerender = () =>
+
+  const saved = loadListFilters();
+  if (saved.status !== undefined) statusSelect.value = saved.status;
+  if (
+    saved.flag !== undefined &&
+    Array.from(flagSelect.options).some((o) => o.value === saved.flag)
+  ) {
+    flagSelect.value = saved.flag;
+  }
+  if (saved.flaggedOnly !== undefined) flaggedOnly.checked = saved.flaggedOnly;
+  if (saved.sortColumn) {
+    listSort.column = saved.sortColumn;
+    listSort.ascending = saved.sortAscending !== false;
+  }
+
+  const rerender = () => {
+    saveListFilters({
+      status: statusSelect.value,
+      flag: flagSelect.value,
+      flaggedOnly: flaggedOnly.checked,
+      sortColumn: listSort.column,
+      sortAscending: listSort.ascending,
+    });
     renderRows(reports, statusSelect.value, flagSelect.value, flaggedOnly.checked);
+  };
   statusSelect.onchange = rerender;
   flagSelect.onchange = rerender;
   flaggedOnly.onchange = rerender;
@@ -84,16 +127,18 @@ function renderRows(reports, statusFilter, flagFilter, flaggedOnly) {
 
   const body = document.getElementById("reports-body");
   body.innerHTML = "";
+  const knownStatuses = ["unreviewed", "edited", "confirmed_ok"];
   filtered.forEach((r) => {
     const tr = document.createElement("tr");
     const link = `/report.html?id=${encodeURIComponent(r.report_id)}`;
+    const statusClass = knownStatuses.includes(r.status) ? r.status : "unreviewed";
     tr.innerHTML = `
       <td><a href="${link}">${escapeHtml(r.report_id)}</a></td>
       <td>${escapeHtml(r.sponsor)}</td>
       <td>${escapeHtml(r.source_file)}</td>
-      <td>${escapeHtml(r.flags.join(", "))}</td>
+      <td class="flags-cell">${escapeHtml(r.flags.join(", "))}</td>
       <td>${r.traveler_count}</td>
-      <td>${r.status}</td>
+      <td><span class="badge status-${statusClass}">${escapeHtml(r.status)}</span></td>
     `;
     body.appendChild(tr);
   });
@@ -101,6 +146,43 @@ function renderRows(reports, statusFilter, flagFilter, flaggedOnly) {
 
 function getReportIdFromUrl() {
   return new URLSearchParams(window.location.search).get("id");
+}
+
+function flagBadges(flags, extraClass) {
+  // Flags repeat (e.g. MEMBER_UNMATCHED once per staff traveler) -- show each
+  // distinct flag once with a count instead of a wall of duplicates.
+  const wrap = document.createElement("div");
+  wrap.className = extraClass ? `flag-badges ${extraClass}` : "flag-badges";
+  const counts = {};
+  flags.forEach((flag) => {
+    counts[flag] = (counts[flag] || 0) + 1;
+  });
+  Object.entries(counts).forEach(([flag, n]) => {
+    const badge = document.createElement("span");
+    badge.className = "badge flag-badge";
+    badge.textContent = n > 1 ? `${flag} ×${n}` : flag;
+    wrap.appendChild(badge);
+  });
+  if (!flags.length) {
+    const badge = document.createElement("span");
+    badge.className = "badge no-flags-badge";
+    badge.textContent = "no flags";
+    wrap.appendChild(badge);
+  }
+  return wrap;
+}
+
+function renderReportHeader(report) {
+  const container = document.getElementById("report-header");
+  container.innerHTML = "";
+  const title = document.createElement("h2");
+  title.textContent = report.report_id;
+  const sponsor = document.createElement("div");
+  sponsor.id = "report-sponsor";
+  sponsor.textContent = `${report.sponsor.name} · ${report.source_file}`;
+  container.appendChild(title);
+  container.appendChild(sponsor);
+  container.appendChild(flagBadges(report.flags));
 }
 
 let currentRawLines = [];
@@ -160,6 +242,9 @@ function renderForm(report, existingEdits) {
       segHeading.textContent = `Segment ${si + 1} (click to highlight source)`;
       segHeading.onclick = () => highlightLines(segment.source_lines);
       pane.appendChild(segHeading);
+      if (segment.flags && segment.flags.length) {
+        pane.appendChild(flagBadges(segment.flags, "segment-flags"));
+      }
 
       const prefix = `travelers[${ti}].segments[${si}]`;
       pane.appendChild(fieldRow(`${prefix}.arrival_date`, segment.arrival_date, true));
@@ -245,6 +330,7 @@ async function renderDetail() {
 
   currentRawLines = data.raw_lines;
   document.getElementById("raw-pane").textContent = currentRawLines.join("\n");
+  renderReportHeader(data.report);
   renderForm(data.report, data.correction.edits || {});
 
   document.getElementById("save-btn").onclick = () => saveCorrection(reportId, "edited");
