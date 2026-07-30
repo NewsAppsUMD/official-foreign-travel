@@ -148,10 +148,51 @@ function getReportIdFromUrl() {
   return new URLSearchParams(window.location.search).get("id");
 }
 
+const COST_CATEGORIES = [
+  ["per_diem", "Per diem"],
+  ["transportation", "Transportation"],
+  ["other", "Other"],
+  ["total", "Total"],
+];
+const COST_CURRENCIES = [
+  ["foreign_currency", "Foreign currency"],
+  ["us_dollar", "U.S. dollar"],
+];
+
 function segmentHasMilitaryAirCost(segment) {
-  return ["per_diem", "transportation", "other", "total"].some((category) =>
-    ["foreign_currency", "us_dollar"].some((currency) => segment.costs[category][currency].military_air)
+  return COST_CATEGORIES.some(([category]) =>
+    COST_CURRENCIES.some(([currency]) => segment.costs[category][currency].military_air)
   );
+}
+
+function costGrid(prefix, costs) {
+  const table = document.createElement("table");
+  table.className = "cost-grid";
+  const headRow = table.createTHead().insertRow();
+  headRow.appendChild(document.createElement("th"));
+  COST_CURRENCIES.forEach(([, label]) => {
+    const th = document.createElement("th");
+    th.textContent = label;
+    headRow.appendChild(th);
+  });
+  const body = table.createTBody();
+  COST_CATEGORIES.forEach(([category, label]) => {
+    const row = body.insertRow();
+    const rowHead = document.createElement("th");
+    rowHead.scope = "row";
+    rowHead.textContent = label;
+    row.appendChild(rowHead);
+    COST_CURRENCIES.forEach(([currency]) => {
+      const path = `${prefix}.costs.${category}.${currency}.amount`;
+      const input = document.createElement("input");
+      input.dataset.path = path;
+      input.dataset.nullable = "true";
+      input.title = path;
+      input.value = costs[category][currency].amount ?? "";
+      row.insertCell().appendChild(input);
+    });
+  });
+  return table;
 }
 
 function flagBadges(flags, extraClass) {
@@ -203,11 +244,12 @@ function highlightLines(range) {
   if (marked) marked.scrollIntoView({ block: "center" });
 }
 
-function fieldRow(path, value, nullable = false) {
+function fieldRow(path, value, nullable = false, label = null) {
   const row = document.createElement("label");
   row.className = "field-row";
-  const label = document.createElement("span");
-  label.textContent = path;
+  const labelEl = document.createElement("span");
+  labelEl.textContent = label ?? path;
+  labelEl.title = path;
   const input = document.createElement("input");
   input.dataset.path = path;
   if (nullable) {
@@ -219,14 +261,43 @@ function fieldRow(path, value, nullable = false) {
     input.dataset.nullable = "true";
   }
   input.value = value ?? "";
-  row.appendChild(label);
+  row.appendChild(labelEl);
   row.appendChild(input);
   return row;
+}
+
+function travelerStartsExpanded(traveler, ti, existingEdits) {
+  const hasFlaggedSegment = traveler.segments.some(
+    (s) => (s.flags && s.flags.length) || segmentHasMilitaryAirCost(s)
+  );
+  // A blank bioguide alone is normal (staffers); only treat it as a problem
+  // when the honorific says this should be a member who therefore ought to
+  // have matched.
+  const identityIncomplete =
+    !traveler.name || (Boolean(traveler.honorific) && !traveler.bioguide_id);
+  // A saved correction must never load hidden.
+  const hasSavedEdit = Object.keys(existingEdits).some((path) =>
+    path.startsWith(`travelers[${ti}].`)
+  );
+  return hasFlaggedSegment || identityIncomplete || hasSavedEdit;
 }
 
 function renderForm(report, existingEdits) {
   const pane = document.getElementById("form-pane");
   pane.innerHTML = "";
+
+  const controls = document.createElement("div");
+  controls.className = "form-controls";
+  const expandAll = document.createElement("button");
+  expandAll.type = "button";
+  expandAll.textContent = "Expand all";
+  const collapseAll = document.createElement("button");
+  collapseAll.type = "button";
+  collapseAll.textContent = "Collapse all";
+  controls.appendChild(expandAll);
+  controls.appendChild(collapseAll);
+  pane.appendChild(controls);
+
   pane.appendChild(fieldRow("sponsor.type", report.sponsor.type));
   pane.appendChild(fieldRow("sponsor.name", report.sponsor.name));
   pane.appendChild(fieldRow("sponsor.code", report.sponsor.code, true));
@@ -236,18 +307,51 @@ function renderForm(report, existingEdits) {
   }
 
   report.travelers.forEach((traveler, ti) => {
-    const heading = document.createElement("h3");
-    heading.textContent = `Traveler ${ti + 1}`;
-    pane.appendChild(heading);
-    pane.appendChild(fieldRow(`travelers[${ti}].name`, traveler.name));
-    pane.appendChild(fieldRow(`travelers[${ti}].honorific`, traveler.honorific, true));
-    pane.appendChild(fieldRow(`travelers[${ti}].bioguide_id`, traveler.bioguide_id, true));
+    const section = document.createElement("section");
+    section.className = "traveler-section";
+
+    const header = document.createElement("div");
+    header.className = "traveler-header";
+    const arrow = document.createElement("span");
+    arrow.className = "traveler-arrow";
+    const name = document.createElement("span");
+    name.className = "traveler-name";
+    name.textContent = traveler.name || "(unnamed)";
+    const meta = document.createElement("span");
+    meta.className = "traveler-meta";
+    const segmentCount = traveler.segments.length;
+    const metaParts = [
+      `Traveler ${ti + 1}`,
+      `${segmentCount} segment${segmentCount === 1 ? "" : "s"}`,
+    ];
+    if (traveler.bioguide_id) metaParts.push(traveler.bioguide_id);
+    meta.textContent = metaParts.join(" · ");
+    header.appendChild(arrow);
+    header.appendChild(name);
+    header.appendChild(meta);
+    const flaggedCount = traveler.segments.filter(
+      (s) => (s.flags && s.flags.length) || segmentHasMilitaryAirCost(s)
+    ).length;
+    if (flaggedCount) {
+      const flagCount = document.createElement("span");
+      flagCount.className = "badge flag-badge";
+      flagCount.textContent = `${flaggedCount} ⚑`;
+      header.appendChild(flagCount);
+    }
+
+    const body = document.createElement("div");
+    body.className = "traveler-body";
+    body.appendChild(fieldRow(`travelers[${ti}].name`, traveler.name, false, "name"));
+    body.appendChild(fieldRow(`travelers[${ti}].honorific`, traveler.honorific, true, "honorific"));
+    body.appendChild(
+      fieldRow(`travelers[${ti}].bioguide_id`, traveler.bioguide_id, true, "bioguide_id")
+    );
 
     traveler.segments.forEach((segment, si) => {
       const segHeading = document.createElement("h4");
       segHeading.textContent = `Segment ${si + 1} (click to highlight source)`;
       segHeading.onclick = () => highlightLines(segment.source_lines);
-      pane.appendChild(segHeading);
+      body.appendChild(segHeading);
       const displayFlags = segment.flags ? [...segment.flags] : [];
       // MILITARY_AIR_LABEL_ROW already conveys this; only add the synthetic
       // badge for the inline-footnote case, which sets the cell's
@@ -256,24 +360,31 @@ function renderForm(report, existingEdits) {
         displayFlags.push("MILITARY_AIR");
       }
       if (displayFlags.length) {
-        pane.appendChild(flagBadges(displayFlags, "segment-flags"));
+        body.appendChild(flagBadges(displayFlags, "segment-flags"));
       }
 
       const prefix = `travelers[${ti}].segments[${si}]`;
-      pane.appendChild(fieldRow(`${prefix}.arrival_date`, segment.arrival_date, true));
-      pane.appendChild(fieldRow(`${prefix}.departure_date`, segment.departure_date, true));
-      pane.appendChild(fieldRow(`${prefix}.country_raw`, segment.country_raw));
-
-      ["per_diem", "transportation", "other", "total"].forEach((category) => {
-        ["foreign_currency", "us_dollar"].forEach((currency) => {
-          const cell = segment.costs[category][currency];
-          pane.appendChild(
-            fieldRow(`${prefix}.costs.${category}.${currency}.amount`, cell.amount, true)
-          );
-        });
-      });
+      body.appendChild(fieldRow(`${prefix}.arrival_date`, segment.arrival_date, true, "arrival_date"));
+      body.appendChild(
+        fieldRow(`${prefix}.departure_date`, segment.departure_date, true, "departure_date")
+      );
+      body.appendChild(fieldRow(`${prefix}.country_raw`, segment.country_raw, false, "country_raw"));
+      body.appendChild(costGrid(prefix, segment.costs));
     });
+
+    section.appendChild(header);
+    section.appendChild(body);
+    if (!travelerStartsExpanded(traveler, ti, existingEdits)) {
+      section.classList.add("collapsed");
+    }
+    header.onclick = () => section.classList.toggle("collapsed");
+    pane.appendChild(section);
   });
+
+  expandAll.onclick = () =>
+    pane.querySelectorAll(".traveler-section").forEach((s) => s.classList.remove("collapsed"));
+  collapseAll.onclick = () =>
+    pane.querySelectorAll(".traveler-section").forEach((s) => s.classList.add("collapsed"));
 
   Object.entries(existingEdits).forEach(([path, value]) => {
     const input = pane.querySelector(`[data-path="${CSS.escape(path)}"]`);

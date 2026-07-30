@@ -143,3 +143,49 @@ td a:hover { text-decoration: underline; }
   padding: 0.2rem 0.4rem;
 }
 .field-row input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+.cost-grid { width: auto; margin: 0.25rem 0 0.75rem; background: none; }
+.cost-grid th, .cost-grid td { border: none; padding: 0.12rem 0.35rem; }
+.cost-grid thead th {
+  position: static;
+  background: none;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 500;
+  text-align: left;
+}
+.cost-grid tbody th { text-align: left; font-weight: 400; color: var(--muted); font-size: 0.75rem; }
+.cost-grid input {
+  width: 8.5rem;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.2rem 0.4rem;
+}
+.cost-grid input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+.form-controls { display: flex; gap: 0.4rem; margin-bottom: 0.6rem; }
+.form-controls button { font-size: 0.75rem; padding: 0.2rem 0.6rem; }
+
+.traveler-section { border: 1px solid var(--border); border-radius: 6px; margin: 0.6rem 0; }
+.traveler-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  cursor: pointer;
+  user-select: none;
+  background: #eef1f5;
+  border-radius: 5px 5px 0 0;
+}
+.traveler-section.collapsed .traveler-header { border-radius: 5px; }
+.traveler-header:hover { background: #e2e7ee; }
+.traveler-arrow::before { content: "▾"; font-size: 0.7rem; color: var(--muted); }
+.traveler-section.collapsed .traveler-arrow::before { content: "▸"; }
+.traveler-name { font-weight: 600; font-size: 0.9rem; }
+.traveler-meta { color: var(--muted); font-size: 0.75rem; }
+.traveler-body { padding: 0.5rem 0.6rem; }
+.traveler-section.collapsed .traveler-body { display: none; }
