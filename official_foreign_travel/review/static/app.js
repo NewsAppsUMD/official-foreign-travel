@@ -148,6 +148,12 @@ function getReportIdFromUrl() {
   return new URLSearchParams(window.location.search).get("id");
 }
 
+function segmentHasMilitaryAirCost(segment) {
+  return ["per_diem", "transportation", "other", "total"].some((category) =>
+    ["foreign_currency", "us_dollar"].some((currency) => segment.costs[category][currency].military_air)
+  );
+}
+
 function flagBadges(flags, extraClass) {
   // Flags repeat (e.g. MEMBER_UNMATCHED once per staff traveler) -- show each
   // distinct flag once with a count instead of a wall of duplicates.
@@ -242,8 +248,15 @@ function renderForm(report, existingEdits) {
       segHeading.textContent = `Segment ${si + 1} (click to highlight source)`;
       segHeading.onclick = () => highlightLines(segment.source_lines);
       pane.appendChild(segHeading);
-      if (segment.flags && segment.flags.length) {
-        pane.appendChild(flagBadges(segment.flags, "segment-flags"));
+      const displayFlags = segment.flags ? [...segment.flags] : [];
+      // MILITARY_AIR_LABEL_ROW already conveys this; only add the synthetic
+      // badge for the inline-footnote case, which sets the cell's
+      // military_air bool without any corresponding entry in `flags`.
+      if (segmentHasMilitaryAirCost(segment) && !displayFlags.includes("MILITARY_AIR_LABEL_ROW")) {
+        displayFlags.push("MILITARY_AIR");
+      }
+      if (displayFlags.length) {
+        pane.appendChild(flagBadges(displayFlags, "segment-flags"));
       }
 
       const prefix = `travelers[${ti}].segments[${si}]`;

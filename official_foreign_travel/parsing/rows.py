@@ -19,6 +19,14 @@ from .layout import TableLayout
 
 DATE_TOKEN_RE = re.compile(r"\d{1,2}/\d{1,2}")
 RULE_RE = re.compile(r"^\s*-{10,}")
+# Footnote *definition* lines ("\3\ Military air transportation.") follow the
+# committee total and closing rule, outside the traveler data region -- but
+# nothing bounds `data_lines` to stop there, so without this guard they reach
+# the same row-classification logic as real data rows. A definition whose text
+# happens to match a row's phrasing (e.g. this one matches the "MILITARY AIR"
+# label-row check below) would otherwise be misread as a labeled sub-row of
+# whichever traveler was last `current`, tagging the wrong traveler's segment.
+FOOTNOTE_DEF_RE = re.compile(r"^\s*\\\d+\\")
 # Tolerates source typos in both the prefix word (Commitee, Committe, Committeee,
 # Committeel, Committtee, Commmittee, Committed, Grant, Commercial) and the
 # "total" token (totals, tota;, tota:, Totals:). The trailing
@@ -135,7 +143,7 @@ def extract_rows(
     pending_name: Optional[str] = None
 
     for line_no, line in data_lines:
-        if not line.strip() or RULE_RE.match(line):
+        if not line.strip() or RULE_RE.match(line) or FOOTNOTE_DEF_RE.match(line):
             continue
 
         stripped = line.strip()

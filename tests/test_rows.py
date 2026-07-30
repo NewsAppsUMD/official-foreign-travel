@@ -106,6 +106,24 @@ class TestExtractRows:
             for seg in t.segments
         )
 
+    def test_footnote_definition_not_read_as_label_row(self):
+        """A footnote *definition* below the committee total ("\\3\\ Military air
+        transportation.") must not be misread as a labeled sub-row and
+        attributed to whichever traveler happened to be last -- it isn't
+        data for any traveler. Regression for a report where this footnote
+        text falsely tagged the second (and last) traveler in the table with
+        MILITARY_AIR_LABEL_ROW, even though the actual "(\\3\\)" footnote
+        marker for that table was on the first traveler's own cost cell.
+        """
+        blocks = segment_tables(load("2025q1feb18.txt"), "2025q1feb18.txt")
+        block = next(b for b in blocks if "COMMITTEE ON THE BUDGET" in b.title_raw.upper())
+        travelers, total, flags = rows_for(block)
+        by_name = {t.name.strip(): t for t in travelers}
+        omar = by_name["Hon. Ilhan Omar"]
+        assert all("MILITARY_AIR_LABEL_ROW" not in seg.flags for seg in omar.segments)
+        lopez = by_name["Hon. Greg Lopez"]
+        assert any(seg.costs.transportation.us_dollar.military_air for seg in lopez.segments)
+
     def test_no_traveler_rows_dropped_across_all_fixtures(self):
         for filename in [
             "1995q1feb09.txt",
