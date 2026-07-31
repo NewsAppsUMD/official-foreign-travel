@@ -212,6 +212,34 @@ class TestExtractRows:
         assert _looks_like_traveler_row_name("Interpreters") is False
         assert _looks_like_traveler_row_name("(CODEL McCaul)") is False
 
+    def test_na_date_cells_do_not_swallow_the_traveler(self):
+        """Some delegation rosters print the literal text 'N/A' in both date
+        cells instead of leaving them dot-filled -- 'N/A' doesn't match the
+        M/D date pattern, so without recognizing it as an equally valid
+        date-zone token, this row finds zero date tokens and (since the
+        prior traveler already has segments) gets silently read as a
+        labeled cost-supplement row for THAT traveler -- discarding this
+        traveler's name and merging their cost into someone else's segment.
+        Three members (Wagner, Babin, Ellzey) on this Luxembourg delegation
+        roster are affected; all three must survive as their own travelers.
+        """
+        block = find_block("2025q1feb18.txt", "DELEGATION TO LUXEMBOURG")
+        travelers, total, flags = rows_for(block)
+        names = {t.name for t in travelers}
+        for name in ("Hon. Ann Wagner", "Hon. Brian Babin", "Hon. Jake Ellzey"):
+            assert name in names, f"{name} was silently merged into another traveler"
+            traveler = next(t for t in travelers if t.name == name)
+            assert len(traveler.segments) == 1
+            seg = traveler.segments[0]
+            assert seg.arrival_raw == ""
+            assert seg.departure_raw == ""
+            assert seg.country_raw.rstrip(".") == "Luxembourg"
+            assert costs_has_data(seg.costs)
+        # Nobody's cost was inflated by an unwanted merge.
+        mccaul = next(t for t in travelers if "McCaul" in t.name)
+        assert costs_has_data(mccaul.segments[0].costs)
+        assert len(mccaul.segments) == 1
+
     def test_no_traveler_rows_dropped_across_all_fixtures(self):
         for filename in [
             "1995q1feb09.txt",

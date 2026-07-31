@@ -18,6 +18,18 @@ from .header import NAME_WORD_RE, _looks_like_personal_name
 from .layout import TableLayout
 
 DATE_TOKEN_RE = re.compile(r"\d{1,2}/\d{1,2}")
+# Some delegation rosters print the literal text "N/A" in both date cells
+# instead of leaving them dot-filled/blank (e.g. a member whose travel dates
+# weren't tracked the same way as the rest of the group). "N/A" doesn't match
+# DATE_TOKEN_RE, so without this a row like "Hon. Ann Wagner... N/A  N/A
+# Luxembourg..." finds zero date tokens, falls through to the "no usable
+# date tokens" branch, and -- since `current` already has segments -- gets
+# silently read as a labeled cost-supplement row for the PRIOR traveler,
+# discarding this traveler's name and merging their cost into someone else's
+# segment. Matching "N/A" as an equally valid date-zone token lets the normal
+# two-token branch build a real (dateless) segment for them instead.
+NA_TOKEN_RE = re.compile(r"N/A", re.IGNORECASE)
+DATE_OR_NA_TOKEN_RE = re.compile(r"\d{1,2}/\d{1,2}|N/A", re.IGNORECASE)
 RULE_RE = re.compile(r"^\s*-{10,}")
 # Footnote *definition* lines ("\3\ Military air transportation.") follow the
 # committee total and closing rule, outside the traveler data region -- but
@@ -142,17 +154,31 @@ def _attach_named_segment(
 
 
 def _find_date_tokens(zone: str) -> Optional[tuple[re.Match, re.Match]]:
-    """Find the first two M/D token matches within a zone, searched from column 0.
+    """Find the first two M/D-or-"N/A" token matches within a zone, searched
+    from column 0.
 
     Searching from 0 (not from the layout's arrival boundary) makes this
     robust to names that overflow their nominal column width -- a common
     failure mode where a long name pushes the actual date text to the right
     of where the layout expected it to start.
     """
-    tokens = list(DATE_TOKEN_RE.finditer(zone))
+    tokens = list(DATE_OR_NA_TOKEN_RE.finditer(zone))
     if len(tokens) < 2:
         return None
     return tokens[0], tokens[1]
+
+
+def _date_token_raw(match: re.Match) -> str:
+    """The raw date text for a token match, normalizing "N/A" to empty.
+
+    An explicit "N/A" means the source is asserting there's no date here --
+    the same thing an empty/dot-filled cell means -- so it should resolve to
+    ARRIVAL_CELL_EMPTY/DEPARTURE_CELL_EMPTY downstream, not
+    ARRIVAL_DATE_UNPARSEABLE/DEPARTURE_DATE_UNPARSEABLE (reserved for
+    non-blank text that doesn't parse as a date).
+    """
+    text = match.group()
+    return "" if NA_TOKEN_RE.fullmatch(text) else text
 
 
 def _find_single_date_token(zone: str) -> Optional[re.Match]:
@@ -333,8 +359,8 @@ def extract_rows(
             # traveler whose itinerary follows).
             name = pending_name
         pending_name = None
-        arrival_raw = first_token.group()
-        departure_raw = second_token.group()
+        arrival_raw = _date_token_raw(first_token)
+        departure_raw = _date_token_raw(second_token)
         leftover = search_zone[second_token.end() :].strip()
         country_raw = clean_cell(layout.country.slice(line))
         if leftover:

@@ -234,7 +234,8 @@ These fire while the parser is figuring out the table's basic shape and the head
 These fire while reading individual traveler/segment rows and their arrival/departure dates.
 
 - **ARRIVAL_CELL_EMPTY** / **DEPARTURE_CELL_EMPTY** — **segment.** The arrival (or departure)
-  date field was left blank in the source. This may get explained away by
+  date field was left blank in the source — or the source printed the literal text "N/A" there
+  instead of dot-filling it, which is treated the same as blank. This may get explained away by
   `US_DEPARTURE_LEG`/`US_RETURN_LEG` or the `DATE_INFERRED_*` flags below — if it's still
   present on its own, that date is genuinely missing from the source.
 - **ARRIVAL_DATE_UNPARSEABLE** / **DEPARTURE_DATE_UNPARSEABLE** — **segment.** The date cell had
