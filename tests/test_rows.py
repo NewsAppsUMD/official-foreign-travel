@@ -4,7 +4,7 @@ import re
 from decimal import Decimal
 from pathlib import Path
 
-from official_foreign_travel.parsing.costs import parse_footnote_map
+from official_foreign_travel.parsing.costs import costs_has_data, parse_footnote_map
 from official_foreign_travel.parsing.layout import detect_layout
 from official_foreign_travel.parsing.rows import extract_rows
 from official_foreign_travel.parsing.segmenter import segment_tables
@@ -123,6 +123,21 @@ class TestExtractRows:
         assert all("MILITARY_AIR_LABEL_ROW" not in seg.flags for seg in omar.segments)
         lopez = by_name["Hon. Greg Lopez"]
         assert any(seg.costs.transportation.us_dollar.military_air for seg in lopez.segments)
+
+    def test_staffdel_expense_row_flagged_not_treated_as_traveler(self):
+        """'STAFFDEL Expense' rows carry real dates/country matching the
+        delegation's leg, but the cost is shared across the whole group, not
+        any one traveler -- kept as its own record (nothing dropped) but
+        flagged so it isn't mistaken for a person.
+        """
+        block = find_block("2024q4oct22.txt", "COMMITTEE ON HOUSE ADMINISTRATION")
+        travelers, total, flags = rows_for(block)
+        staffdel = [t for t in travelers if t.name.upper().startswith("STAFFDEL")]
+        assert len(staffdel) == 2
+        for traveler in staffdel:
+            assert len(traveler.segments) == 1
+            assert "STAFFDEL_GROUP_EXPENSE" in traveler.segments[0].flags
+            assert costs_has_data(traveler.segments[0].costs)
 
     def test_no_traveler_rows_dropped_across_all_fixtures(self):
         for filename in [

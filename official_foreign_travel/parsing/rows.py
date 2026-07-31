@@ -27,6 +27,12 @@ RULE_RE = re.compile(r"^\s*-{10,}")
 # label-row check below) would otherwise be misread as a labeled sub-row of
 # whichever traveler was last `current`, tagging the wrong traveler's segment.
 FOOTNOTE_DEF_RE = re.compile(r"^\s*\\\d+\\")
+# "STAFFDEL Expense(s)" rows carry real dates and a country matching the
+# delegation's leg, but the cost is a shared expense for the whole group, not
+# any one traveler -- unlike "(STAFFDEL)"/"Staffdel Costs" label rows (no date
+# tokens, already merged via COST_SUPPLEMENT_MERGED), this shape has valid
+# dates and would otherwise be indistinguishable from a real new traveler.
+STAFFDEL_EXPENSE_RE = re.compile(r"^STAFFDEL\s+EXPENSES?\b", re.IGNORECASE)
 # Tolerates source typos in both the prefix word (Commitee, Committe, Committeee,
 # Committeel, Committtee, Commmittee, Committed, Grant, Commercial) and the
 # "total" token (totals, tota;, tota:, Totals:). The trailing
@@ -273,6 +279,8 @@ def extract_rows(
             flags=cost_flags,
             source_lines=[line_no],
         )
+        if name and STAFFDEL_EXPENSE_RE.match(name):
+            segment.flags.append("STAFFDEL_GROUP_EXPENSE")
 
         if name:
             current = TravelerDraft(name=name, segments=[segment])

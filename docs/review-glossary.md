@@ -272,6 +272,10 @@ These fire while reading individual traveler/segment rows and their arrival/depa
   calendar year because the table's overall reporting period (normally used to figure out which
   year "3/14" means) itself couldn't be read. No dates are shown; points to a bigger problem
   with the table's header worth investigating.
+- **STAFFDEL_GROUP_EXPENSE** — **segment.** The row's name is "STAFFDEL Expense(s)" — a real
+  arrival/departure date and country matching the delegation's leg, but the cost is shared across
+  the whole staff delegation, not any one traveler. Kept as its own record (nothing is dropped)
+  but flagged so it isn't mistaken for a person when counting travelers.
 - **SEGMENT_WITHOUT_TRAVELER_NAME** — **report** (recorded at the table level, though it points
   at one specific row). A cost row appeared in the source with no traveler's name the parser
   could find or infer. Dates/costs on that row may be accurate, but it's not known whose trip it
