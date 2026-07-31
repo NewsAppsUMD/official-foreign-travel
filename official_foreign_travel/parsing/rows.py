@@ -14,7 +14,7 @@ from typing import Optional
 
 from ..utils.text import clean_cell, get_honorific
 from .costs import CostGroup, Costs, costs_has_data, merge_costs, parse_cost_cell
-from .header import NAME_WORD_RE, _looks_like_personal_name
+from .header import NAME_WORD_RE
 from .layout import TableLayout
 
 DATE_TOKEN_RE = re.compile(r"\d{1,2}/\d{1,2}")
@@ -50,7 +50,56 @@ DATE_OR_NA_TOKEN_RE = re.compile(r"\d{1,2}/\d{1,2}|N/A", re.IGNORECASE)
 # must not be mistaken for this row's own date placeholder. It's only
 # checked once real dates are already ruled out, and only from where the
 # date columns actually start (see `_find_date_tokens`).
-PLACEHOLDER_TOKEN_RE = re.compile(r"\bCODEL\b|\bcancel(?:led)?\b", re.IGNORECASE)
+#
+# The optional trailing "Fees"/"Fee" covers a third wording ("Cancel Fees"
+# filling both date cells) -- without consuming it here, the word survives
+# as unmatched text after the token and gets read as country-cell overflow,
+# corrupting the country ("Fees England" instead of "England").
+PLACEHOLDER_TOKEN_RE = re.compile(r"\bCODEL\b|\bcancel(?:led)?\b(?:\s+fees?\b)?", re.IGNORECASE)
+# Trailing footnote markers on a name ("Hon. Steny Hoyer \3\") -- a local
+# copy of assemble.py's NAME_FOOTNOTE_TAIL_RE. rows.py can't import from
+# assemble.py (assemble.py imports extract_rows from here; importing back
+# would be circular). Stripped before judging whether a name is a person,
+# so a footnote-suffixed member's name isn't rejected for the marker alone.
+NAME_FOOTNOTE_TAIL_RE = re.compile(r"(?:\s*(?:\*+|\\\d+\\|\(\d+\)))+\s*$")
+# A parenthetical noting a booked traveler didn't actually travel, or their
+# trip was cancelled -- the source still reports a cost (usually a
+# cancellation fee) against their name. End-anchored and applied only to
+# the name cell, so it can't collide with PLACEHOLDER_TOKEN_RE (which only
+# ever looks in the date zone) or with a real date's own trailing
+# "(CANCELED)" annotation (that row already has real date tokens and never
+# reaches this check).
+CANCEL_ANNOTATION_RE = re.compile(
+    r"\s*\((?:did\s*n[o']?t\s+travel|cancel(?:l?ed)?(?:\s+fees?)?|no[\s-]*show)\)\s*$",
+    re.IGNORECASE,
+)
+# A curated honorific list, deliberately NOT utils.text.get_honorific --
+# that function's loose fallback matches ANY leading "Word." (e.g. "Misc."
+# in "Misc. delegation expenses"), which would misclassify cost labels as
+# people. "Speaker" is included (usually printed with no trailing period,
+# e.g. "Speaker Hastert") since these reports do use it as an honorific.
+PERSON_HONORIFIC_RE = re.compile(
+    r"^(?:Hon|Mr|Ms|Mrs|Dr|Rep|Rev|Sen|Adm|Fr|Amb|Comm|Cong|Maj|Sgt|Min|Speaker)\b\.?\s*",
+    re.IGNORECASE,
+)
+# Cost/expense/logistics vocabulary that can appear in Title Case (passing
+# a pure capitalization check) but is never a person's name. Curated from
+# a corpus-wide survey of every dateless-named-row-with-cost-data case; if
+# a new label phrase turns up misclassified as a person, extend this list
+# rather than loosening the word-shape rule below.
+LABEL_VOCAB = frozenset(
+    {
+        "AIRFARE", "AIR", "FLIGHT", "FLIGHTS", "TICKET", "TICKETS", "RENTAL", "RENTALS",
+        "CARS", "BUS", "PHONE", "CELL", "CARD", "CARDS", "ROOM", "SUPPLIES", "MEALS",
+        "LUNCHEON", "DINNER", "RECEPTION", "INTERPRETER", "INTERPRETERS", "TRANSPORTATION",
+        "EXPENSE", "EXPENSES", "COST", "COSTS", "FEE", "FEES", "TOTAL", "TOTALS", "SUBTOTAL",
+        "EMBASSY", "DEPT", "DELEGATION", "CODEL", "STAFFDEL", "COMMERCIAL", "OFFICIAL",
+        "REPRESENTATIONAL", "MISC", "NETWORK", "ADAPTER", "PREPAID", "GROUND", "HOTEL",
+        "LODGING", "TRIP", "TRAVEL", "PER", "DIEM", "REPORT", "VEHICLES", "PERSONAL",
+        "STATE", "CONTROL", "RETURN", "ONE-WAY", "SUPPLEMENT", "SUPPLEMENTAL", "DAY",
+        "CANCELLED", "CANCELED", "TAXES", "CHARGES",
+    }
+)
 RULE_RE = re.compile(r"^\s*-{10,}")
 # Footnote *definition* lines ("\3\ Military air transportation.") follow the
 # committee total and closing rule, outside the traveler data region -- but
@@ -140,6 +189,67 @@ def _looks_like_traveler_row_name(name: str) -> bool:
     return all(NAME_WORD_RE.match(w) for w in words)
 
 
+def _is_person_named_row(name: str) -> tuple[bool, bool]:
+    """True when a printed row name is a specific person, not a cost/label
+    row -- and separately, whether it carries a "didn't travel" annotation.
+
+    Returns (is_person, had_cancel_annotation).
+
+    Checked after stripping a trailing footnote marker and/or cancellation
+    annotation. Any cost-vocabulary word (LABEL_VOCAB) anywhere in what's
+    left rejects the row outright, even if it would otherwise pass a shape
+    check below -- the fail-safe: an unrecognized future label phrase falls
+    back to being read as a cost supplement (data preserved, at worst
+    misattributed) rather than becoming a phantom "traveler".
+
+    Three ways a de-annotated, vocabulary-free name is confidently a person:
+    1. A curated honorific (PERSON_HONORIFIC_RE) prefixes a name-shaped
+       remainder -- even a bare surname ("Hon. Hastert"), a common
+       CODEL-list shorthand.
+    2. A "(Did not travel)"/"(Cancel Fees)"/"(no show)" annotation on an
+       otherwise name-shaped base -- the source is explicitly telling us
+       this row is about a specific person, not a generic cost line.
+    3. No honorific, no annotation, but 2-5 words, all capitalized like a
+       name -- a bare staffer name.
+
+    Rejects outright if the name contains an internal run of dots. A real
+    printed name never does; this is the signature of a fixed-width column
+    boundary landing mid-word inside the row's dot-fill (a rarer sibling of
+    the "Cancel Fees"-straddling-the-boundary case fixed alongside this
+    function) -- e.g. a two-line-wrapped placeholder ("Didn't"/"Depart")
+    bleeding a fragment ("Ogles....................  Di") into what NAME_WORD_RE
+    would otherwise accept, since it permits dots mid-word for abbreviations
+    like "St.". Falling back to supplement-merge behavior for the rare row
+    this excludes is safer than promoting a garbled phantom traveler.
+    """
+    if ".." in name:
+        return False, False
+    base = NAME_FOOTNOTE_TAIL_RE.sub("", name).strip()
+    had_annotation = bool(CANCEL_ANNOTATION_RE.search(base))
+    base = CANCEL_ANNOTATION_RE.sub("", base).strip().rstrip(",")
+    if not base or base.startswith("("):
+        return False, False
+
+    vocab_words = re.findall(r"[A-Za-z-]+", base.upper())
+    if any(w in LABEL_VOCAB for w in vocab_words):
+        return False, had_annotation
+
+    honorific_match = PERSON_HONORIFIC_RE.match(base)
+    if honorific_match:
+        remainder_words = base[honorific_match.end() :].strip().split()
+        if remainder_words and (
+            len(remainder_words) == 1 or all(NAME_WORD_RE.match(w) for w in remainder_words)
+        ):
+            return True, had_annotation
+        return False, had_annotation
+
+    base_words = base.split()
+    min_words = 1 if had_annotation else 2
+    if min_words <= len(base_words) <= 5 and all(NAME_WORD_RE.match(w) for w in base_words):
+        return True, had_annotation
+    return False, had_annotation
+
+
 def _strip_dash_continuation(name: str) -> str:
     """Normalize a bare "--" ditto mark to empty, so it flows through the
     existing blank-name continuation logic and attaches to the traveler
@@ -209,8 +319,16 @@ def _find_date_tokens(
     tokens = list(DATE_OR_NA_TOKEN_RE.finditer(zone))
     if len(tokens) >= 2:
         return tokens[0], tokens[1]
+    # A match's END (not start) is compared to the boundary: a genuine
+    # placeholder can fall a few characters to the left of a table's arrival
+    # column (e.g. "Cancel Fees" starting just before it), splitting the
+    # word across the boundary. As long as it extends to or past the
+    # boundary it's still this row's date-zone token, not name-zone text --
+    # a false "CODEL" embedded earlier in someone's own printed name ends
+    # well before the boundary, with plenty of dot-fill to spare, so this
+    # doesn't reopen that hazard.
     placeholder_tokens = [
-        m for m in PLACEHOLDER_TOKEN_RE.finditer(zone) if m.start() >= placeholder_min_start
+        m for m in PLACEHOLDER_TOKEN_RE.finditer(zone) if m.end() > placeholder_min_start
     ]
     if len(placeholder_tokens) < 2:
         return None
@@ -357,7 +475,10 @@ def extract_rows(
 
             name = clean_cell(layout.name.slice(line))
             if current is None or not current.segments:
-                if current is None and name and _looks_like_personal_name(name):
+                is_person, had_annotation = (
+                    _is_person_named_row(name) if (current is None and name) else (False, False)
+                )
+                if is_person:
                     # Blank (dot-filled) date cells mean the source is
                     # asserting "no date here" -- but non-blank, merely
                     # unparseable text ("1/" with no day) means a real date
@@ -392,9 +513,11 @@ def extract_rows(
                             departure_raw="",
                             country_raw=country_here,
                             costs=costs,
-                            flags=cost_flags,
+                            flags=list(cost_flags),
                             source_lines=[line_no],
                         )
+                        if had_annotation:
+                            segment.flags.append("DID_NOT_TRAVEL")
                         current = _attach_named_segment(
                             name, segment, travelers, travelers_by_name
                         )
@@ -406,14 +529,35 @@ def extract_rows(
                     # itinerary follows on the subsequent rows. Carry the
                     # name forward so the next dated row attaches to it
                     # instead of becoming an orphan flagged
-                    # SEGMENT_WITHOUT_TRAVELER_NAME. The
-                    # _looks_like_personal_name guard rejects sub-labels
-                    # like "Commercial airfare" (the second word is
-                    # lowercase) and multi-line sponsor headings ("Visit to
-                    # Kuwait, ...").
+                    # SEGMENT_WITHOUT_TRAVELER_NAME. The person-name guard
+                    # rejects sub-labels like "Commercial airfare" and
+                    # multi-line sponsor headings ("Visit to Kuwait, ...").
                     pending_name = name
                 continue
             if name:
+                is_person, had_annotation = _is_person_named_row(name)
+                if is_person and costs_has_data(costs):
+                    # This dateless row names a SPECIFIC person -- a booked
+                    # traveler who didn't go (a cancellation fee), or a
+                    # bare staffer row in an all-dateless roster table --
+                    # not a generic cost label describing the CURRENT
+                    # traveler's own segment. Give them their own (dateless)
+                    # record instead of silently folding their cost into
+                    # whoever happens to be `current`.
+                    person_segment = SegmentDraft(
+                        arrival_raw="",
+                        departure_raw="",
+                        country_raw=clean_cell(layout.country.slice(line)),
+                        costs=costs,
+                        flags=list(cost_flags),
+                        source_lines=[line_no],
+                    )
+                    if had_annotation:
+                        person_segment.flags.append("DID_NOT_TRAVEL")
+                    current = _attach_named_segment(
+                        name, person_segment, travelers, travelers_by_name
+                    )
+                    continue
                 # A labeled sub-row ("Commercial airfare", "Delegation
                 # Expenses", etc.) describing an additional cost for the
                 # current traveler's most recent segment, not a new

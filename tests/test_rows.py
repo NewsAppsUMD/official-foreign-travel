@@ -6,7 +6,11 @@ from pathlib import Path
 
 from official_foreign_travel.parsing.costs import costs_has_data, parse_footnote_map
 from official_foreign_travel.parsing.layout import ColumnSpan, TableLayout, detect_layout
-from official_foreign_travel.parsing.rows import _looks_like_traveler_row_name, extract_rows
+from official_foreign_travel.parsing.rows import (
+    _is_person_named_row,
+    _looks_like_traveler_row_name,
+    extract_rows,
+)
 from official_foreign_travel.parsing.segmenter import segment_tables
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -270,6 +274,54 @@ class TestExtractRows:
         assert kelley.segments[0].costs.total.us_dollar.amount == Decimal("7046.98")
         westerman = next(t for t in travelers if t.name == "Hon. Bruce Westerman")
         assert westerman.segments[0].costs.total.us_dollar.amount == Decimal("7650.49")
+
+    def test_cancel_fees_placeholder_straddling_column_boundary_not_garbled(self):
+        """A second wording of the cancelled-trip placeholder -- the literal
+        words 'Cancel Fees' (not 'CODEL'/'cancelled') filling both date
+        cells -- happens to fall a few characters to the left of this
+        table's arrival-column boundary, splitting the first 'Cancel' into
+        'Cance' (left of the boundary, in the name zone) and 'l' (right of
+        it). Since only the second, undivided 'Cancel' then satisfied
+        PLACEHOLDER_TOKEN_RE within the search zone, `_find_date_tokens`
+        found just one placeholder token (needs two) and fell through to
+        the dateless-row branch, where the name slice picked up the
+        stray 'Cance' fragment: 'Susan Adams......................  Cance'.
+        A token that straddles the boundary -- starts before it but ends
+        at or after it -- must still count."""
+        block = find_block("2025q1feb18.txt", "COMMITTEE ON APPROPRIATIONS")
+        travelers, total, flags = rows_for(block)
+        adams = next(t for t in travelers if "Adams" in t.name)
+        assert adams.name == "Susan Adams"
+        # Adams also has a separate, fully-dated trip elsewhere in this same
+        # table -- both correctly attach to one traveler record by name; the
+        # cancelled England leg is the dateless one among her segments.
+        seg = next(s for s in adams.segments if s.country_raw == "England")
+        assert seg.arrival_raw == ""
+        assert seg.departure_raw == ""
+        assert seg.costs.total.us_dollar.amount == Decimal("595.00")
+
+        laturner = next(t for t in travelers if "LaTurner" in t.name)
+        assert laturner.name == "Hon. Jake LaTurner"
+        assert len(laturner.segments) == 1
+        assert laturner.segments[0].costs.total.us_dollar.amount == Decimal("2496.75")
+
+    def test_wrapped_didnt_depart_placeholder_not_promoted_as_garbled_name(self):
+        """A third placeholder wording -- 'Didn't'/'Depart' split across two
+        printed lines -- isn't recognized by PLACEHOLDER_TOKEN_RE at all (a
+        single line's text is all `_find_date_tokens` ever sees; the
+        continuation line is a separate row entirely). The row falls to the
+        dateless branch, where this table's column boundary lands mid-word
+        in the dot-fill after 'Ogles', so `layout.name.slice` captures
+        'Hon. Andy Ogles.......................  Di' -- and NAME_WORD_RE
+        (which allows dots mid-word for abbreviations like 'St.') would
+        happily accept the dot-fill-contaminated fragment as a name-shaped
+        word, promoting a garbled phantom traveler. Fully supporting this
+        wrapped wording is out of scope (same as the CODEL/cancelled fix);
+        the fallback must at least not fabricate a bad name."""
+        block = find_block("2026q2apr16.txt", "(AMENDED) REPORT OF EXPENDITURES")
+        travelers, total, flags = rows_for(block)
+        assert not any(".." in t.name for t in travelers)
+        assert not any(t.name.startswith("Hon. Andy Ogles.") for t in travelers)
 
     def test_canceled_single_l_not_confused_with_cancelled_placeholder(self):
         """Regression: 'canceled' (single-L, American spelling, appearing as
@@ -566,3 +618,229 @@ class TestDatelessNameRowWithOwnData:
         assert dinh.name.strip() == "Uyen T. Dinh"
         assert len(dinh.segments) == 1
         assert dinh.segments[0].country_raw.rstrip(".") == "Vietnam"
+
+
+class TestIsPersonNamedRow:
+    """Direct tests for the classifier that decides whether a dateless
+    row's printed name is a specific person (promote to their own record)
+    or a cost/label line (stays a supplement merge)."""
+
+    def test_honorific_with_annotation(self):
+        assert _is_person_named_row("Hon. Neal Dunn (Did not travel)") == (True, True)
+
+    def test_bare_name_with_annotation(self):
+        assert _is_person_named_row("Sean Brady (Did not travel)") == (True, True)
+
+    def test_bare_name_no_annotation(self):
+        assert _is_person_named_row("Kevin Roper") == (True, False)
+
+    def test_honorific_with_footnote_tail(self):
+        assert _is_person_named_row("Hon. Steny Hoyer \\3\\") == (True, False)
+
+    def test_bare_surname_shorthand_after_honorific(self):
+        assert _is_person_named_row("Hon. Hastert") == (True, False)
+        assert _is_person_named_row("Speaker Hastert") == (True, False)
+
+    def test_cost_labels_rejected_even_in_title_case(self):
+        assert _is_person_named_row("Commercial Airfare") == (False, False)
+        assert _is_person_named_row("Commercial airfare") == (False, False)
+        assert _is_person_named_row("Delegation expenses") == (False, False)
+        assert _is_person_named_row("Misc. delegation expenses") == (False, False)
+        assert _is_person_named_row("Military air transportation") == (False, False)
+
+    def test_leading_parenthetical_rejected(self):
+        assert _is_person_named_row("(CODEL McCaul)") == (False, False)
+
+    def test_cancel_annotation_with_vocab_word_rejected(self):
+        assert _is_person_named_row("Ground transportation (Cancelled)") == (False, True)
+
+
+class TestPersonDatelessRowPromotion:
+    """A dateless row naming a SPECIFIC person (a booked traveler who
+    didn't go, a cancellation fee, or a bare staffer row in an all-dateless
+    roster table) must become its own traveler record, not be silently
+    read as a cost-supplement label for whoever came before it.
+    """
+
+    def test_annotated_person_promoted_not_merged_into_prior_traveler(self):
+        """Regression for the real case (2024q4nov14-002): 'Hon. Neal Dunn
+        (Did not travel)' following Hon. Michael McCaul's dated row must
+        become Dunn's own record, not inflate McCaul's segment."""
+        layout = _synthetic_layout()
+        mccaul_line = _row(
+            name="Hon. Michael McCaul", arrival="9/29", departure="10/1",
+            country="Japan", cost="623.00", cost_col=7,
+        )
+        dunn_line = _row(
+            name="Hon. Neal Dunn (Did not travel)", country="Japan",
+            cost="200.07", cost_col=7,
+        )
+        travelers, total, flags = extract_rows([(1, mccaul_line), (2, dunn_line)], layout, {})
+        assert len(travelers) == 2
+        mccaul = next(t for t in travelers if "McCaul" in t.name)
+        dunn = next(t for t in travelers if "Dunn" in t.name)
+        assert len(mccaul.segments) == 1
+        assert "COST_SUPPLEMENT_MERGED" not in mccaul.segments[0].flags
+        assert mccaul.segments[0].costs.total.us_dollar.amount == Decimal("623.00")
+        assert len(dunn.segments) == 1
+        assert dunn.segments[0].arrival_raw == ""
+        assert dunn.segments[0].departure_raw == ""
+        assert dunn.segments[0].country_raw.rstrip(".") == "Japan"
+        assert dunn.segments[0].costs.total.us_dollar.amount == Decimal("200.07")
+        assert "DID_NOT_TRAVEL" in dunn.segments[0].flags
+
+    def test_bare_name_with_and_without_annotation(self):
+        layout = _synthetic_layout()
+        dated_line = _row(
+            name="Hon. Michael McCaul", arrival="9/29", departure="10/1",
+            country="Japan", cost="623.00", cost_col=7,
+        )
+        brady_line = _row(
+            name="Sean Brady (Did not travel)", country="Japan", cost="200.07", cost_col=7,
+        )
+        roper_line = _row(name="Kevin Roper", country="Japan", cost="199.00", cost_col=7)
+        travelers, total, flags = extract_rows(
+            [(1, dated_line), (2, brady_line), (3, roper_line)], layout, {}
+        )
+        assert len(travelers) == 3
+        brady = next(t for t in travelers if "Brady" in t.name)
+        roper = next(t for t in travelers if "Roper" in t.name)
+        assert "DID_NOT_TRAVEL" in brady.segments[0].flags
+        assert "DID_NOT_TRAVEL" not in roper.segments[0].flags
+        assert roper.segments[0].costs.total.us_dollar.amount == Decimal("199.00")
+
+    def test_footnote_tail_person_promoted(self):
+        layout = _synthetic_layout()
+        dated_line = _row(
+            name="Hon. C.W. Bill Young", arrival="1/6", departure="1/7",
+            country="United States", cost="199.00", cost_col=7,
+        )
+        hoyer_line = _row(
+            name="Hon. Steny Hoyer \\3\\", country="United States", cost="199.00", cost_col=7,
+        )
+        travelers, total, flags = extract_rows([(1, dated_line), (2, hoyer_line)], layout, {})
+        assert len(travelers) == 2
+        hoyer = next(t for t in travelers if "Hoyer" in t.name)
+        assert len(hoyer.segments) == 1
+        assert hoyer.segments[0].costs.total.us_dollar.amount == Decimal("199.00")
+
+    def test_cost_label_rows_still_merge_as_supplement(self):
+        """Regression guard: label rows -- including a TITLE-CASE cost
+        label, which is the exact shape that would otherwise pass a pure
+        capitalization heuristic -- must still merge into the current
+        traveler's segment, not become phantom travelers."""
+        layout = _synthetic_layout()
+        dated_line = _row(
+            name="Hon. Michael McCaul", arrival="9/29", departure="10/1",
+            country="Japan", cost="500.00", cost_col=7,
+        )
+        for label in ("Commercial airfare", "Commercial Airfare", "Misc. delegation expenses"):
+            label_line = _row(name=label, cost="50.00", cost_col=7)
+            travelers, total, flags = extract_rows([(1, dated_line), (2, label_line)], layout, {})
+            assert len(travelers) == 1, f"{label!r} wrongly promoted to its own traveler"
+            seg = travelers[0].segments[0]
+            assert "COST_SUPPLEMENT_MERGED" in seg.flags
+            assert seg.costs.total.us_dollar.amount == Decimal("550.00")
+
+    def test_military_air_label_row_unaffected(self):
+        layout = _synthetic_layout()
+        dated_line = _row(
+            name="Hon. Michael McCaul", arrival="9/29", departure="10/1",
+            country="Japan", cost="500.00", cost_col=7,
+        )
+        military_line = _row(name="Military air transportation")
+        travelers, total, flags = extract_rows([(1, dated_line), (2, military_line)], layout, {})
+        assert len(travelers) == 1
+        seg = travelers[0].segments[0]
+        assert "MILITARY_AIR_LABEL_ROW" in seg.flags
+        assert seg.costs.transportation.us_dollar.military_air is True
+
+    def test_person_row_with_no_cost_data_not_promoted(self):
+        """A person-shaped name with neither country nor cost data isn't a
+        complete record -- don't create a phantom empty traveler for it."""
+        layout = _synthetic_layout()
+        dated_line = _row(
+            name="Hon. Michael McCaul", arrival="9/29", departure="10/1",
+            country="Japan", cost="500.00", cost_col=7,
+        )
+        empty_person_line = _row(name="Hon. Someone Else")
+        travelers, total, flags = extract_rows(
+            [(1, dated_line), (2, empty_person_line)], layout, {}
+        )
+        assert len(travelers) == 1
+        assert not any("Someone Else" in t.name for t in travelers)
+
+    def test_country_overflow_after_promoted_person_attaches_to_their_segment(self):
+        """A country-overflow continuation line following a promoted
+        person's row must extend THAT person's segment, not the prior
+        traveler's -- confirms `current` is correctly repointed."""
+        layout = _synthetic_layout()
+        dated_line = _row(
+            name="Hon. Michael McCaul", arrival="9/29", departure="10/1",
+            country="Japan", cost="500.00", cost_col=7,
+        )
+        dunn_line = _row(
+            name="Hon. Neal Dunn (Did not travel)", country="Republic of", cost="200.07", cost_col=7,
+        )
+        overflow_line = _row(country="Korea")
+        travelers, total, flags = extract_rows(
+            [(1, dated_line), (2, dunn_line), (3, overflow_line)], layout, {}
+        )
+        dunn = next(t for t in travelers if "Dunn" in t.name)
+        mccaul = next(t for t in travelers if "McCaul" in t.name)
+        assert "Korea" in dunn.segments[0].country_raw
+        assert "CONTINUATION_MERGED" in dunn.segments[0].flags
+        assert "Korea" not in mccaul.segments[0].country_raw
+
+    def test_first_row_annotated_person_promoted(self):
+        """A person-with-annotation row as the very first row of a table
+        (current is None) must also be promoted, not silently dropped."""
+        layout = _synthetic_layout()
+        line = _row(
+            name="Hon. Neal Dunn (Did not travel)", country="Japan", cost="200.07", cost_col=7,
+        )
+        travelers, total, flags = extract_rows([(1, line)], layout, {})
+        assert len(travelers) == 1
+        assert travelers[0].name.strip() == "Hon. Neal Dunn (Did not travel)"
+        assert "DID_NOT_TRAVEL" in travelers[0].segments[0].flags
+
+
+class TestPersonDatelessRowPromotionRealFixture:
+    """End-to-end regression for the real 2024q4nov14-002 case (Delegation
+    to Japan, the Philippines, Qatar, and Finland): three people who didn't
+    travel (or had cancellation fees) were previously swallowed into
+    whichever traveler happened to be `current` at that point in the
+    table, inflating Hon. Victoria Spartz's and Mitchell Moonier's Japan
+    segments by the missing people's fees.
+    """
+
+    def test_did_not_travel_rows_promoted_not_merged_into_neighbors(self):
+        block = find_block("2024q4nov14.txt", "DELEGATION TO JAPAN")
+        travelers, total, flags = rows_for(block)
+        by_name = {t.name.strip(): t for t in travelers}
+
+        for name, amount in (
+            ("Hon. Neal Dunn (Did not travel)", "200.07"),
+            ("Hon. Anna Luna (Did not travel)", "250.09"),
+            ("Sean Brady (Did not travel)", "200.07"),
+        ):
+            assert name in by_name, f"{name} was silently merged into another traveler"
+            traveler = by_name[name]
+            assert len(traveler.segments) == 1
+            seg = traveler.segments[0]
+            assert seg.arrival_raw == ""
+            assert seg.departure_raw == ""
+            assert "DID_NOT_TRAVEL" in seg.flags
+            assert seg.costs.total.us_dollar.amount == Decimal(amount)
+
+        # The two travelers whose segments used to absorb these fees are
+        # back to their own, un-inflated totals.
+        spartz = by_name["Hon. Victoria Spartz"]
+        assert spartz.segments[0].country_raw.rstrip(".") == "Japan"
+        assert spartz.segments[0].costs.total.us_dollar.amount == Decimal("623.00")
+        assert "COST_SUPPLEMENT_MERGED" not in spartz.segments[0].flags
+
+        moonier = by_name["Mitchell Moonier"]
+        assert moonier.segments[0].country_raw.rstrip(".") == "Japan"
+        assert moonier.segments[0].costs.total.us_dollar.amount == Decimal("623.00")
+        assert "COST_SUPPLEMENT_MERGED" not in moonier.segments[0].flags

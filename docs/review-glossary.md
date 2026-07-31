@@ -275,6 +275,13 @@ These fire while reading individual traveler/segment rows and their arrival/depa
   29th in a non-leap year (so it can't exist), and since arrival was also in February, the
   parser inferred the traveler actually departed March 1st. A calculated substitution for an
   impossible printed date — worth double-checking.
+- **DID_NOT_TRAVEL** — **segment.** The source explicitly marks this person as not having
+  traveled, or the trip as cancelled — printed as an annotation next to their name ("(Did not
+  travel)", "(Cancel Fees)", "(no show)") on a row with no dates. The cost shown is real reported
+  spending (typically a cancellation fee), not a mistake; the empty dates are faithful to the
+  source, not a gap to fill in. A dateless person row whose country reads "United States" may
+  also carry `US_DEPARTURE_LEG` from date-recovery logic — harmless, since there's no date to
+  recover either way.
 - **MILITARY_AIR_LABEL_ROW** — **segment.** A separate row of text reading "Military Air" (with
   no dollar figures) marked this leg as flown on a military aircraft rather than commercial. See
   [The "military air" concept](#the-military-air-concept) — this reflects a real note in the
