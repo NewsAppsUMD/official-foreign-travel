@@ -347,6 +347,50 @@ class TestNoExpendituresForm:
         assert report.period.year == 2001
         assert report.travelers == []
 
+    def _typo_no_expenditures_block(self, phrase):
+        from official_foreign_travel.parsing.segmenter import TableBlock
+
+        lines = [
+            "REPORT OF EXPENDITURES FOR OFFICIAL FOREIGN TRAVEL, COMMITTEE ON WAYS AND MEANS, HOUSE OF REPRESENTATIVES, EXPENDED BETWEEN JULY 1 AND SEPT. 30, 2000",
+            "------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------",
+            "                                                 Date                                                    Foreign         Transportation            Other purposes                 Total",
+            "                                        ----------------------                                           currency  -----------------------------------------------------------------------------",
+            "       Name of Member or employee                                       Country             Per diem   U.S. dollar               U.S. dollar               U.S. dollar               U.S. dollar",
+            "                                                                                      FOR HOUSE COMMITTEES",
+            f"                         Please Note: If there were {phrase} noted above, please check the box at right to so indicate and return. x",
+            "------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------",
+            "BILL ARCHER, Chairman, Oct. 4, 2000.",
+        ]
+        return TableBlock(
+            source_file="2000q4oct17.txt",
+            table_index=5,
+            title_raw=lines[0],
+            lines=lines,
+            start_line=1,
+        )
+
+    def test_ocr_typos_in_boilerplate_still_flagged_no_expenditures(self):
+        """Real OCR typos found in the corpus ('expditures', 'expenditure'
+        singular, 'canlendar', 'calandar', 'calender') must not defeat the
+        no-expenditures detection -- without tolerance for these, the form
+        falls through to being treated as a real (empty) data table with no
+        explanatory flag at all, e.g. 2001q1feb26-003, 2000q4oct17-005."""
+        from official_foreign_travel.parsing.assemble import assemble_table
+
+        typo_phrases = [
+            "no expenditures during the calendar quarter",
+            "no expeditures during the calendar quarter",
+            "no expditures during the calendar quarter",
+            "no expenditure during the calendar quarter",
+            "no expenditures during the calender quarter",
+            "no expenditures during the canlendar quarter",
+            "no expenditures during the calandar quarter",
+        ]
+        for phrase in typo_phrases:
+            report = assemble_table(self._typo_no_expenditures_block(phrase))
+            assert "NO_EXPENDITURES" in report.flags, f"not flagged for: {phrase!r}"
+            assert report.travelers == []
+
     def test_real_table_not_misclassified_as_no_expenditures(self):
         """A real data table with travelers must not trip the no-expenditures check.
         The 2019q1jan29 fixture has one no-expenditures form (no travelers) and

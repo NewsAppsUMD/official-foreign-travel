@@ -65,8 +65,15 @@ SURNAME_PARTICLES = {
 NAME_SUFFIX_TOKENS = ["JR", "JR.", "SR", "SR.", "II", "III", "IV"]
 LOW_CONFIDENCE_THRESHOLD = 0.8
 
+# Tolerates observed OCR typos in both trouble words: "expenditures" (also
+# seen as "expeditures", "expditures", "expenditure") and "calendar" (also
+# seen as "calender", "canlendar", "calandar"). Without this, a typo'd
+# checkbox form fails the match entirely and falls through to being treated
+# as a real (empty) data table -- LAYOUT_UNDETECTED or a silent
+# zero-traveler report with no explanatory flag at all, instead of the
+# correct NO_EXPENDITURES.
 NO_EXPENDITURES_RE = re.compile(
-    r"no\s+expenditures\s+during\s+the\s+calendar\s+quarter.*?check\s+the\s+box",
+    r"no\s+exp\w{0,2}diture[s]?\s+during\s+the\s+ca[a-z]{0,2}l[ae]nd[ae]r\s+quarter.*?check\s+the\s+box",
     re.IGNORECASE | re.DOTALL,
 )
 WRAPPER_INTRO_RE = re.compile(
