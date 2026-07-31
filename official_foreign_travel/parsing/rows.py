@@ -45,6 +45,13 @@ FOOTNOTE_DEF_RE = re.compile(r"^\s*\\\d+\\")
 # tokens, already merged via COST_SUPPLEMENT_MERGED), this shape has valid
 # dates and would otherwise be indistinguishable from a real new traveler.
 STAFFDEL_EXPENSE_RE = re.compile(r"^STAFFDEL\s+EXPENSES?\b", re.IGNORECASE)
+# A bare "--" (or "-"/"---") in the name column is some tables' "ditto" mark
+# for "same traveler as the row above," used instead of leaving continuation
+# rows blank. Non-empty, so without this it reads as a truthy name -- not a
+# person (fails _looks_like_traveler_row_name) and not blank (skips the
+# existing continuation path) -- so every continuation row for every
+# traveler in the table was misread as one shared "non-person" traveler.
+DASH_CONTINUATION_RE = re.compile(r"^-{1,3}$")
 # Tolerates source typos in both the prefix word (Commitee, Committe, Committeee,
 # Committeel, Committtee, Commmittee, Committed, Grant, Commercial) and the
 # "total" token (totals, tota;, tota:, Totals:). The trailing
@@ -110,6 +117,14 @@ def _looks_like_traveler_row_name(name: str) -> bool:
     if len(words) < 2:
         return False
     return all(NAME_WORD_RE.match(w) for w in words)
+
+
+def _strip_dash_continuation(name: str) -> str:
+    """Normalize a bare "--" ditto mark to empty, so it flows through the
+    existing blank-name continuation logic and attaches to the traveler
+    above, instead of being read as a distinct (non-person) traveler.
+    """
+    return "" if DASH_CONTINUATION_RE.match(name) else name
 
 
 def _attach_named_segment(
@@ -278,7 +293,7 @@ def extract_rows(
                 else:
                     arrival_raw = ""
                     departure_raw = token_text
-                name = clean_cell(search_zone[:token_start])
+                name = _strip_dash_continuation(clean_cell(search_zone[:token_start]))
                 if not name and pending_name is not None and current is None:
                     name = pending_name
                 pending_name = None
@@ -352,7 +367,7 @@ def extract_rows(
             continue
 
         first_token, second_token = token_matches
-        name = clean_cell(search_zone[: first_token.start()])
+        name = _strip_dash_continuation(clean_cell(search_zone[: first_token.start()]))
         if not name and pending_name is not None and current is None:
             # Consume a name carried forward from a prior no-dates row
             # (incomplete "1/" dates or a CODEL label-row naming the

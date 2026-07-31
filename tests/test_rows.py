@@ -240,6 +240,31 @@ class TestExtractRows:
         assert costs_has_data(mccaul.segments[0].costs)
         assert len(mccaul.segments) == 1
 
+    def test_dash_ditto_mark_attaches_to_traveler_above_not_treated_as_new(self):
+        """Some tables print a bare '--' in the name column on continuation
+        rows instead of leaving it blank. '--' is non-empty (so it doesn't
+        take the existing blank-name continuation path) and isn't
+        person-shaped (so it isn't a normal new traveler either) -- every
+        continuation row for every traveler in the table was being merged
+        together into one shared fake '--' traveler. Each '--' row must
+        instead attach to the specific traveler named on the row above it.
+        """
+        block = find_block("2024q4nov14.txt", "COMMITTEE ON APPROPRIATIONS")
+        travelers, total, flags = rows_for(block)
+        assert not any(t.name == "--" for t in travelers)
+
+        ellzey = next(t for t in travelers if "Ellzey" in t.name)
+        countries = [s.country_raw.rstrip(".") for s in ellzey.segments]
+        assert countries == ["Estonia", "Latvia", "Lithuania", "Poland"]
+
+        grogis = next(t for t in travelers if t.name == "Joshua Grogis")
+        assert [s.country_raw.rstrip(".") for s in grogis.segments] == [
+            "Estonia",
+            "Latvia",
+            "Lithuania",
+            "Poland",
+        ]
+
     def test_no_traveler_rows_dropped_across_all_fixtures(self):
         for filename in [
             "1995q1feb09.txt",
