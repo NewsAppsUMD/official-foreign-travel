@@ -282,6 +282,19 @@ These fire while reading individual traveler/segment rows and their arrival/depa
   calendar year because the table's overall reporting period (normally used to figure out which
   year "3/14" means) itself couldn't be read. No dates are shown; points to a bigger problem
   with the table's header worth investigating.
+- **NON_PERSON_LABEL_ROW** — **segment.** This row has real dates and a country, exactly like a
+  traveler row, but its printed name doesn't look like a person's — capitalized only on the first
+  word ("Delegation expenses", "Ground transportation") or a single generic word ("Luncheon",
+  "Interpreters") rather than every word ("Bart Reising"). Kept as its own record (nothing is
+  dropped) but flagged so it isn't mistaken for a person when counting travelers. (The narrower
+  `STAFFDEL_GROUP_EXPENSE` below is this same idea, for the specific "STAFFDEL Expense(s)" text.)
+- **REPEATED_NAME_SEGMENTS_MERGED** — **segment.** This exact name appeared earlier in the same
+  table, so this row's segment was combined into that earlier traveler's record instead of
+  creating a duplicate "new" traveler. This happens on tables organized leg-by-leg (all
+  travelers for leg 1, then leg 2, ...), which reprint every name on every leg instead of the
+  more common "name once, blank on continuation rows" convention. Only added when the repeated
+  name looks like a person's — it's rare, but two different people could in principle share an
+  exact printed name in one delegation, so it's worth a glance to confirm the merge is right.
 - **STAFFDEL_GROUP_EXPENSE** — **segment.** The row's name is "STAFFDEL Expense(s)" — a real
   arrival/departure date and country matching the delegation's leg, but the cost is shared across
   the whole staff delegation, not any one traveler. Kept as its own record (nothing is dropped)

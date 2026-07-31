@@ -6,7 +6,7 @@ from pathlib import Path
 
 from official_foreign_travel.parsing.costs import costs_has_data, parse_footnote_map
 from official_foreign_travel.parsing.layout import detect_layout
-from official_foreign_travel.parsing.rows import extract_rows
+from official_foreign_travel.parsing.rows import _looks_like_traveler_row_name, extract_rows
 from official_foreign_travel.parsing.segmenter import segment_tables
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -128,16 +128,89 @@ class TestExtractRows:
         """'STAFFDEL Expense' rows carry real dates/country matching the
         delegation's leg, but the cost is shared across the whole group, not
         any one traveler -- kept as its own record (nothing dropped) but
-        flagged so it isn't mistaken for a person.
+        flagged so it isn't mistaken for a person. The two occurrences
+        (Estonia leg, Latvia leg) share the exact same printed name, so
+        they merge into one traveler with two segments rather than two
+        separate fake travelers -- but without the merge-caveat flag,
+        since a non-person label doesn't need an "is this the same
+        identity?" warning.
         """
         block = find_block("2024q4oct22.txt", "COMMITTEE ON HOUSE ADMINISTRATION")
         travelers, total, flags = rows_for(block)
         staffdel = [t for t in travelers if t.name.upper().startswith("STAFFDEL")]
-        assert len(staffdel) == 2
-        for traveler in staffdel:
-            assert len(traveler.segments) == 1
-            assert "STAFFDEL_GROUP_EXPENSE" in traveler.segments[0].flags
-            assert costs_has_data(traveler.segments[0].costs)
+        assert len(staffdel) == 1
+        assert len(staffdel[0].segments) == 2
+        for seg in staffdel[0].segments:
+            assert "STAFFDEL_GROUP_EXPENSE" in seg.flags
+            assert "REPEATED_NAME_SEGMENTS_MERGED" not in seg.flags
+            assert costs_has_data(seg.costs)
+
+    def test_repeated_name_across_legs_merged_into_one_traveler(self):
+        """A table organized leg-by-leg (all travelers for leg 1, then leg
+        2, ...) reprints every traveler's name on every leg, instead of
+        naming them once with blank continuation rows. Each of the three
+        staffers here (Bart Reising, Brian Cress, Derek Luyten) appears on
+        three separate rows with the exact same printed name -- they must
+        merge into one traveler with three segments each, not nine
+        separate fake travelers.
+        """
+        blocks = segment_tables(load("2024q4oct22.txt"), "2024q4oct22.txt")
+        block = next(
+            b
+            for b in blocks
+            if "DELEGATION TO LITHUANIA" in b.title_raw.upper() and "AMENDED" in b.title_raw.upper()
+        )
+        travelers, total, flags = rows_for(block)
+        assert len(travelers) == 3
+        names = {t.name for t in travelers}
+        assert names == {"Bart Reising", "Brian Cress", "Derek Luyten"}
+        for traveler in travelers:
+            assert len(traveler.segments) == 3
+            countries = [s.country_raw.rstrip(".") for s in traveler.segments]
+            assert countries == ["Lithuania", "Latvia", "Estonia"]
+            # First occurrence starts the traveler; the later two are merges.
+            assert "REPEATED_NAME_SEGMENTS_MERGED" not in traveler.segments[0].flags
+            assert "REPEATED_NAME_SEGMENTS_MERGED" in traveler.segments[1].flags
+            assert "REPEATED_NAME_SEGMENTS_MERGED" in traveler.segments[2].flags
+
+    def test_non_person_label_row_with_dates_flagged_not_merged_as_person(self):
+        """'Delegation expenses' rows carry real dates/country like a
+        traveler row, but the name doesn't look like a person (title-case
+        only on the first word) -- flagged NON_PERSON_LABEL_ROW. Repeated
+        occurrences still merge into one record (nothing dropped, no
+        duplicate fake entries), but without the person-merge caveat.
+        """
+        blocks = segment_tables(load("1994q2may17.txt"), "1994q2may17.txt")
+        # This specific table has three separate "Delegation expenses" rows
+        # (one per unrelated sub-trip); an earlier table in the same file has
+        # only one, which wouldn't exercise the merge path.
+        block = next(
+            b
+            for b in blocks
+            if "\n".join(b.lines).count("Delegation expenses") > 1
+        )
+        travelers, total, flags = rows_for(block)
+        expenses = [t for t in travelers if t.name == "Delegation expenses"]
+        assert len(expenses) == 1
+        assert len(expenses[0].segments) >= 3
+        # Every row that explicitly prints "Delegation expenses" is flagged;
+        # a blank-name continuation row (e.g. Czech Republic/UK following the
+        # Italy row) merges via the pre-existing continuation mechanism and
+        # isn't itself a repeat of the name, so it carries no flag here.
+        named_rows = [s for s in expenses[0].segments if s.flags]
+        assert len(named_rows) >= 3
+        for seg in named_rows:
+            assert "NON_PERSON_LABEL_ROW" in seg.flags
+            assert "REPEATED_NAME_SEGMENTS_MERGED" not in seg.flags
+
+    def test_looks_like_traveler_row_name(self):
+        assert _looks_like_traveler_row_name("Bart Reising") is True
+        assert _looks_like_traveler_row_name("Hon. Hastert") is True
+        assert _looks_like_traveler_row_name("Speaker Hastert") is True
+        assert _looks_like_traveler_row_name("Delegation expenses") is False
+        assert _looks_like_traveler_row_name("Luncheon") is False
+        assert _looks_like_traveler_row_name("Interpreters") is False
+        assert _looks_like_traveler_row_name("(CODEL McCaul)") is False
 
     def test_no_traveler_rows_dropped_across_all_fixtures(self):
         for filename in [

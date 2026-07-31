@@ -12,9 +12,9 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
-from ..utils.text import clean_cell
+from ..utils.text import clean_cell, get_honorific
 from .costs import CostGroup, Costs, costs_has_data, merge_costs, parse_cost_cell
-from .header import _looks_like_personal_name
+from .header import NAME_WORD_RE, _looks_like_personal_name
 from .layout import TableLayout
 
 DATE_TOKEN_RE = re.compile(r"\d{1,2}/\d{1,2}")
@@ -72,6 +72,73 @@ class TravelerDraft:
 
     name: str
     segments: list[SegmentDraft] = field(default_factory=list)
+
+
+def _looks_like_traveler_row_name(name: str) -> bool:
+    """True when a printed row name looks like it names a traveler (a
+    person), not a cost/expense/note label row ("Delegation expenses",
+    "Luncheon", "Travel day", "(CODEL McCaul)").
+
+    A name carrying a recognized honorific ("Hon.", "Mr.", "Speaker", etc.)
+    is always a person, even when only a bare surname follows -- a common
+    CODEL-list shorthand ("Hon. Hastert"). Otherwise, real traveler names in
+    this corpus are consistently capitalized on every word ("Bart Reising",
+    "Speaker Hastert"); label rows are typically capitalized only on their
+    first word ("Delegation expenses", "Ground transportation") or are a
+    single generic word ("Luncheon", "Interpreters"). A name wrapped in
+    parentheses ("(CODEL McCaul)") is a sponsor/trip annotation that bled
+    into the name column, never a person.
+    """
+    stripped = name.strip().rstrip(",")
+    if not stripped or stripped.startswith("("):
+        return False
+    if get_honorific(stripped):
+        return True
+    words = stripped.split()
+    if len(words) < 2:
+        return False
+    return all(NAME_WORD_RE.match(w) for w in words)
+
+
+def _attach_named_segment(
+    name: str,
+    segment: SegmentDraft,
+    travelers: list[TravelerDraft],
+    travelers_by_name: dict[str, TravelerDraft],
+) -> TravelerDraft:
+    """Attach `segment` to the traveler named `name`, merging into an
+    existing draft with the exact same name earlier in this table instead
+    of creating a duplicate.
+
+    Tables organized leg-by-leg (all travelers for leg 1, then leg 2, ...)
+    reprint every traveler's name on every leg, rather than the more common
+    convention of naming a traveler once and leaving subsequent rows blank.
+    Treating every printed name as a new traveler regardless produced one
+    fake traveler per leg per person -- inflating traveler counts and
+    match-flag counts (e.g. STAFF_UNMATCHED) by a factor of the leg count.
+    """
+    existing = travelers_by_name.get(name)
+    if existing is not None:
+        # Already-flagged non-person rows (STAFFDEL_GROUP_EXPENSE,
+        # NON_PERSON_LABEL_ROW -- set by the caller before this call) don't
+        # need a second "same identity?" caveat -- they're not a person's
+        # identity to begin with. Checking the flags the caller already set,
+        # rather than re-deriving the classification here, keeps this in
+        # sync with whichever specific pattern (STAFFDEL_EXPENSE_RE, the
+        # general non-person check) actually matched: "STAFFDEL Expense"
+        # itself passes the general capitalized-words check, so re-deriving
+        # would wrongly add both flags.
+        already_non_person = (
+            "STAFFDEL_GROUP_EXPENSE" in segment.flags or "NON_PERSON_LABEL_ROW" in segment.flags
+        )
+        if not already_non_person:
+            segment.flags.append("REPEATED_NAME_SEGMENTS_MERGED")
+        existing.segments.append(segment)
+        return existing
+    draft = TravelerDraft(name=name, segments=[segment])
+    travelers.append(draft)
+    travelers_by_name[name] = draft
+    return draft
 
 
 def _find_date_tokens(zone: str) -> Optional[tuple[re.Match, re.Match]]:
@@ -143,6 +210,7 @@ def extract_rows(
         Tuple of (travelers, committee_total or None, table-level flags)
     """
     travelers: list[TravelerDraft] = []
+    travelers_by_name: dict[str, TravelerDraft] = {}
     committee_total: Optional[Costs] = None
     table_flags: list[str] = []
     current: Optional[TravelerDraft] = None
@@ -197,9 +265,10 @@ def extract_rows(
                     flags=cost_flags,
                     source_lines=[line_no],
                 )
+                if name and not _looks_like_traveler_row_name(name):
+                    segment.flags.append("NON_PERSON_LABEL_ROW")
                 if name:
-                    current = TravelerDraft(name=name, segments=[segment])
-                    travelers.append(current)
+                    current = _attach_named_segment(name, segment, travelers, travelers_by_name)
                 elif current is not None:
                     current.segments.append(segment)
                 else:
@@ -281,10 +350,11 @@ def extract_rows(
         )
         if name and STAFFDEL_EXPENSE_RE.match(name):
             segment.flags.append("STAFFDEL_GROUP_EXPENSE")
+        elif name and not _looks_like_traveler_row_name(name):
+            segment.flags.append("NON_PERSON_LABEL_ROW")
 
         if name:
-            current = TravelerDraft(name=name, segments=[segment])
-            travelers.append(current)
+            current = _attach_named_segment(name, segment, travelers, travelers_by_name)
         elif current is not None:
             current.segments.append(segment)
         else:
