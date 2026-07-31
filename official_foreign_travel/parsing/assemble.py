@@ -378,6 +378,7 @@ def _bare_name_date_verified_match(
         (bioguide_id, confidence) tuple on a verified match, else None.
     """
     cleaned = NAME_TRAILING_GUNK_RE.sub("", name).strip().rstrip(",").strip()
+    cleaned = NAME_PARENTHETICAL_RE.sub("", cleaned).strip()
     if not cleaned:
         return None
     body_tokens = cleaned.split()

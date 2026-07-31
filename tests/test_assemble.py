@@ -567,3 +567,25 @@ class TestBareNameMemberMatchFlag:
         assert "MEMBER_MATCHED_BY_NAME_DATE" in italy.flags
         assert "BARE_NAME_MEMBER_MATCH" in italy.flags
         assert all("BARE_NAME_MEMBER_MATCH" in s.flags for s in hayden.segments)
+
+    def test_bare_name_with_cancel_annotation_still_date_verified(self, tmp_path):
+        """A bare-name member row printed with a "(Did not travel)"-style
+        annotation ("Hayden Haynes (Did not travel)") must still recover
+        via the date-verified bare-name path -- _bare_name_date_verified_match
+        only stripped trailing whitespace/periods/backslashes
+        (NAME_TRAILING_GUNK_RE), not a parenthetical, so the lookup key built
+        from the raw name ("HON. HAYDEN HAYNES (DID NOT TRAVEL)") never
+        matched the member_index key ("HON. HAYDEN HAYNES")."""
+        member_index = {"HON. HAYDEN HAYNES": "H000001"}
+        hayden_haynes = {
+            "id": {"bioguide": "H000001"},
+            "name": {"first": "Hayden", "middle": "", "last": "Haynes", "suffix": "", "nickname": ""},
+            "terms": [{"start": "2023-01-03", "end": "2027-01-03"}],
+        }
+        matcher = _seeded_matcher(tmp_path, [hayden_haynes])
+        reports = assemble_file(
+            FIXTURES / "bare_name_annotation.txt", member_index=member_index, name_matcher=matcher
+        )
+        testland = next(r for r in reports if "DELEGATION TO TESTLAND" in r.sponsor.name.upper())
+        hayden = next(t for t in testland.travelers if "Haynes" in t.name)
+        assert hayden.bioguide_id == "H000001"
