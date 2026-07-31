@@ -107,7 +107,7 @@ class TestFuzzyFallback:
         segments = [dated_segment(date(2018, 10, 1), date(2018, 10, 10))]
         bioguide, confidence, flags = _match_member("Bob Goodlatte", segments, {}, seeded_matcher)
         assert bioguide is None
-        assert flags == ["MEMBER_UNMATCHED"]
+        assert flags == ["STAFF_UNMATCHED"]
 
 
 class TestWasServing:
@@ -177,7 +177,7 @@ class TestBareNameDateVerifiedMatch:
         )
         assert bioguide is None
         assert "MEMBER_MATCHED_BY_NAME_DATE" not in flags
-        assert "MEMBER_UNMATCHED" in flags
+        assert "STAFF_UNMATCHED" in flags
 
     def test_bare_name_with_middle_initial_matches_via_first_last(self, seeded_matcher):
         """'Robert W. Goodlatte' (no Hon. prefix) tries HON. ROBERT W. GOODLATTE
@@ -204,7 +204,7 @@ class TestBareNameDateVerifiedMatch:
             "Robert Goodlatte", [], member_index, seeded_matcher, period=None
         )
         assert bioguide is None
-        assert flags == ["MEMBER_UNMATCHED"]
+        assert flags == ["STAFF_UNMATCHED"]
 
     def test_single_token_bare_name_skipped(self, seeded_matcher):
         """'Goodlatte' (single token) is too ambiguous to date-verify."""
@@ -216,7 +216,7 @@ class TestBareNameDateVerifiedMatch:
             "Goodlatte", [], member_index, seeded_matcher, period=period
         )
         assert bioguide is None
-        assert flags == ["MEMBER_UNMATCHED"]
+        assert flags == ["STAFF_UNMATCHED"]
 
     def test_bare_name_not_in_index_returns_unmatched(self, seeded_matcher):
         """A bare name that doesn't appear in members.csv at all falls
@@ -229,7 +229,7 @@ class TestBareNameDateVerifiedMatch:
             "Robert Goodlatte", [], member_index, seeded_matcher, period=period
         )
         assert bioguide is None
-        assert flags == ["MEMBER_UNMATCHED"]
+        assert flags == ["STAFF_UNMATCHED"]
 
 
 # Same-surname member pairs for ambiguous-fuzzy disambiguation tests.

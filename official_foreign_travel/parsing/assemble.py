@@ -611,7 +611,10 @@ def _match_member(
         # produces confident-looking but wrong bioguide IDs (e.g. multiple
         # different staffers all matched to the same member by surname).
         # Only names the source itself flagged with an honorific are attempted.
-        return None, None, ["MEMBER_UNMATCHED"]
+        # This is STAFF_UNMATCHED, not MEMBER_UNMATCHED: no real match attempt
+        # was made (the source gave us no reason to try), so it's the expected
+        # outcome for staff, not a match failure worth flagging for review.
+        return None, None, ["STAFF_UNMATCHED"]
 
     first_dated = next(
         (s for s in segments if s.arrival_date is not None and s.departure_date is not None), None
