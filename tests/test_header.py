@@ -421,6 +421,12 @@ class TestClassifySponsor:
         """'JOINT ECONOMIC COMMITTEE' -- committee without 'COMMITTEE ON'."""
         assert classify_sponsor("JOINT ECONOMIC COMMITTEE")[0] == "committee"
 
+    def test_task_force(self):
+        assert (
+            classify_sponsor("TASK FORCE ON THE ATTEMPTED ASSASSINATION OF DONALD J. TRUMP")
+            == ("committee", [])
+        )
+
     def test_committee_onstandards_typo(self):
         """'COMMITTEE ONSTANDARDS' (missing space after ON) still classifies."""
         assert classify_sponsor("COMMITTEE ONSTANDARDS OF OFFICIAL CONDUCT")[0] == "committee"

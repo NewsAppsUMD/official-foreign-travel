@@ -767,6 +767,11 @@ def classify_sponsor(sponsor_raw: str) -> tuple[SponsorType, list[str]]:
     # "JOINT ECONOMIC COMMITTEE" etc. — committee without "COMMITTEE ON".
     if re.search(r"\bJOINT\b.*\bCOMMITTEE\b", upper):
         return "committee", []
+    # House task forces (e.g. "Task Force on the Attempted Assassination of
+    # Donald J. Trump") are standing bodies formed by resolution, structurally
+    # committee-like -- classify alongside committees rather than "other".
+    if re.search(r"\bTASK FORCE\b", upper):
+        return "committee", []
     if re.search(r"\bDELEGATION\b", upper):
         return "delegation", []
     if re.search(r"\bCOMMISSION ON\b", upper):
