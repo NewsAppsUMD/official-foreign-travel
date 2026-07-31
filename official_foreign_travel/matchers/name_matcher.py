@@ -474,3 +474,27 @@ class NameMatcher:
                 if idx and bioguide_id in idx:
                     return True
         return False
+
+    def was_serving_month(
+        self, bioguide_id: str, year: int, month: int, window_months: int = 1
+    ) -> bool:
+        """Return True if `bioguide_id` was serving within `window_months` of `year`-`month`.
+
+        Tighter than `was_serving`: that method's whole-calendar-year window
+        means a member who resigned partway through a year still passes it
+        for the rest of that year, since it only checks "served *some* month
+        that year" -- a staffer sharing that member's exact name and
+        traveling months after the resignation would incorrectly verify.
+        This checks actual adjacent months instead of adjacent years, so it
+        reflects whether the member was serving during the trip itself.
+        """
+        if not self._initialized:
+            self.initialize()
+        start = year * 12 + (month - 1)
+        for offset in range(-window_months, window_months + 1):
+            total = start + offset
+            y, m = divmod(total, 12)
+            idx = self.members_index.get((y, m + 1))
+            if idx and bioguide_id in idx:
+                return True
+        return False

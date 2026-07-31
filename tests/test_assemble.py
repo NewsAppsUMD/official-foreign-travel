@@ -449,3 +449,77 @@ class TestLayoutInferredFromData:
         )
         if slovakia is not None:
             assert "LAYOUT_INFERRED_FROM_DATA" not in slovakia.flags
+
+
+def _seeded_matcher(tmp_path, members_list):
+    """A NameMatcher seeded with synthetic legislator data, no network/YAML needed."""
+    from official_foreign_travel.matchers.name_matcher import NameMatcher
+    from official_foreign_travel.utils.config import Config
+
+    config = Config(
+        data_dir=tmp_path,
+        report_text_dir=tmp_path,
+        output_dir=tmp_path,
+        legislators_current_yaml=tmp_path / "missing-current.yaml",
+        legislators_historical_yaml=tmp_path / "missing-historical.yaml",
+    )
+    matcher = NameMatcher(config=config)
+    matcher.charset = matcher._get_charset(members_list)
+    matcher.members_dict = matcher._generate_bioguide_dict(members_list)
+    matcher.members_index = {}
+    matcher._append_data(members_list)
+    matcher._initialized = True
+    return matcher
+
+
+class TestBareNameMemberMatchFlag:
+    """End-to-end regression coverage for the 2024q4oct22-009 'William
+    Johnson' case: a staffer's bare name coincidentally exact-matches a
+    HON.-prefixed alias for an unrelated former member (Bill Johnson,
+    R-OH, resigned 2024-01-21) in the delegation-to-Italy fixture."""
+
+    def test_resigned_member_no_longer_matches_later_trip(self, tmp_path):
+        """The actual regression: 'William Johnson' travels 9/2-9/9/2024,
+        seven months after the real Bill Johnson (J000292) resigned. Month-
+        precision date verification must reject this match."""
+        member_index = {"HON. WILLIAM JOHNSON": "J000292"}
+        bill_johnson = {
+            "id": {"bioguide": "J000292"},
+            "name": {"first": "Bill", "middle": "", "last": "Johnson", "suffix": "", "nickname": ""},
+            "terms": [{"start": "2011-01-05", "end": "2024-01-21"}],
+        }
+        matcher = _seeded_matcher(tmp_path, [bill_johnson])
+        reports = assemble_file(
+            FIXTURES / "2024q4oct22.txt", member_index=member_index, name_matcher=matcher
+        )
+        italy = next(r for r in reports if "DELEGATION TO ITALY" in r.sponsor.name.upper())
+        william = next(t for t in italy.travelers if t.name == "William Johnson")
+        assert william.bioguide_id is None
+        assert william.honorific is None
+        assert "BARE_NAME_MEMBER_MATCH" not in italy.flags
+        assert not any("BARE_NAME_MEMBER_MATCH" in s.flags for s in william.segments)
+
+    def test_still_serving_member_match_flagged_for_review(self, tmp_path):
+        """Contrast case: when a bare name's date-verified match is
+        legitimate (the member was actually serving during the exact
+        travel month), BARE_NAME_MEMBER_MATCH still fires -- it's a
+        defense-in-depth signal for ANY bare-name bioguide match, not
+        only the wrong ones, since the source gave no indication this
+        row was a member at all."""
+        member_index = {"HON. HAYDEN HAYNES": "H000001"}
+        hayden_haynes = {
+            "id": {"bioguide": "H000001"},
+            "name": {"first": "Hayden", "middle": "", "last": "Haynes", "suffix": "", "nickname": ""},
+            "terms": [{"start": "2023-01-03", "end": "2027-01-03"}],
+        }
+        matcher = _seeded_matcher(tmp_path, [hayden_haynes])
+        reports = assemble_file(
+            FIXTURES / "2024q4oct22.txt", member_index=member_index, name_matcher=matcher
+        )
+        italy = next(r for r in reports if "DELEGATION TO ITALY" in r.sponsor.name.upper())
+        hayden = next(t for t in italy.travelers if t.name == "Hayden Haynes")
+        assert hayden.bioguide_id == "H000001"
+        assert hayden.honorific is None
+        assert "MEMBER_MATCHED_BY_NAME_DATE" in italy.flags
+        assert "BARE_NAME_MEMBER_MATCH" in italy.flags
+        assert all("BARE_NAME_MEMBER_MATCH" in s.flags for s in hayden.segments)

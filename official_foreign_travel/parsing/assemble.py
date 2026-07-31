@@ -344,6 +344,7 @@ def _bare_name_date_verified_match(
     name: str,
     member_index: dict[str, str],
     name_matcher: NameMatcher,
+    segments: list[TravelSegment],
     period: Optional[Period],
 ) -> Optional[tuple[str, float]]:
     """Try HON.-prefixed exact lookups for a bare name, gated by date-of-service.
@@ -353,17 +354,22 @@ def _bare_name_date_verified_match(
     correctly doesn't generate ``HON.`` variants for (the safety gate blocks
     fuzzy matching of bare names to members). But some of those bare names are
     actually members -- the prefix was just dropped. This helper tries the
-    HON.-prefixed exact lookup forms and accepts the match only if the
-    matched bioguide was serving during the report's period (±1 year for the
-    House's filed-next-quarter lag). Without the date gate, a staffer named
-    "Mark Walker" traveling in 2011 would match "HON. MARK WALKER" -> W000819
-    (who served 2015-2019).
+    HON.-prefixed exact lookup forms and accepts the match only if the matched
+    bioguide was serving within a month of the traveler's actual travel date
+    (the first segment with both dates parsed, falling back to the report's
+    filing period when no segment date is usable).
+
+    Checking the exact travel month, not just "serving somewhere in the
+    filing year", matters: a member who resigns in January still counts as
+    "serving in 2024" under a whole-year check for the rest of that year,
+    which would wrongly match a same-named staffer's trip in August -- seven
+    months after the member had actually left office. Without any date gate
+    at all, a staffer named "Mark Walker" traveling in 2011 would match
+    "HON. MARK WALKER" -> W000819 (who served 2015-2019).
 
     Returns:
         (bioguide_id, confidence) tuple on a verified match, else None.
     """
-    if period is None:
-        return None
     cleaned = NAME_TRAILING_GUNK_RE.sub("", name).strip().rstrip(",").strip()
     if not cleaned:
         return None
@@ -376,6 +382,17 @@ def _bare_name_date_verified_match(
         # Single-token bare names are too ambiguous to date-verify reliably.
         return None
 
+    first_dated = next(
+        (s for s in segments if s.arrival_date is not None and s.departure_date is not None),
+        None,
+    )
+    if first_dated is not None and first_dated.arrival_date is not None:
+        check_year, check_month = first_dated.arrival_date.year, first_dated.arrival_date.month
+    elif period is not None and period.start is not None:
+        check_year, check_month = period.start.year, period.start.month
+    else:
+        return None
+
     upper = " ".join(t.upper() for t in body_tokens)
     keys: list[str] = [f"HON. {upper}"]
     # For 3+ token names, also try first + last (drop middle initials).
@@ -384,7 +401,7 @@ def _bare_name_date_verified_match(
 
     for key in keys:
         bioguide = member_index.get(key)
-        if bioguide and name_matcher.was_serving(bioguide, period.year):
+        if bioguide and name_matcher.was_serving_month(bioguide, check_year, check_month):
             return bioguide, 1.0
     return None
 
@@ -592,12 +609,14 @@ def _match_member(
         # name, which doesn't match members.csv's "HON. ..." keys. Some of
         # those bare names are actually members whose source row just omitted
         # the "Hon." prefix -- try HON.-prefixed forms here, but only accept
-        # if the matched bioguide was actually serving during the report's
-        # period (±1 year for filing lag). A staffer named "Mark Walker"
-        # traveling in 2011 would otherwise match "HON. MARK WALKER" -> W000819
-        # (who served 2015-2019); the date gate rejects that.
+        # if the matched bioguide was actually serving during the traveler's
+        # own travel month (±1 month), not just somewhere in the filing
+        # year -- a member who resigns in January still passes a whole-year
+        # check for the rest of that year. A staffer named "Mark Walker"
+        # traveling in 2011 would otherwise match "HON. MARK WALKER" ->
+        # W000819 (who served 2015-2019); the date gate rejects that.
         verified = _bare_name_date_verified_match(
-            name, member_index, name_matcher, period
+            name, member_index, name_matcher, segments, period
         )
         if verified is not None:
             bioguide, confidence = verified
@@ -770,10 +789,24 @@ def assemble_table(
             )
             flags.extend(name_flags)
 
+            honorific = get_honorific(draft.name) or None
+            if bioguide_id and not honorific:
+                # Defense in depth, independent of which matching route
+                # produced this: a bioguide match on a name the source never
+                # marked as a member's is inherently higher-risk (see
+                # _match_member's bare-name path) and warrants a second look,
+                # regardless of whether the specific match is right or wrong.
+                # Set on both the report (for the list page's flag filter)
+                # and every segment (so the detail page's per-traveler view
+                # surfaces it too, not just a report-wide flag list).
+                flags.append("BARE_NAME_MEMBER_MATCH")
+                for seg in segments_out:
+                    seg.flags.append("BARE_NAME_MEMBER_MATCH")
+
             travelers_out.append(
                 Traveler(
                     name=draft.name,
-                    honorific=get_honorific(draft.name) or None,
+                    honorific=honorific,
                     bioguide_id=bioguide_id,
                     match_confidence=match_confidence,
                     segments=segments_out,

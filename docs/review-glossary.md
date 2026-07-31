@@ -132,6 +132,13 @@ document triggers it, and what it implies about whether you should double-check 
 These record how (or whether) a traveler's printed name was matched to a specific member of
 Congress in the official roster.
 
+- **BARE_NAME_MEMBER_MATCH** — **report and every segment of that traveler.** A traveler with no
+  title at all ("Hon.", "Dr.", etc.) was nonetheless assigned a bioguide ID. This fires on *every*
+  such match, whether or not it's correct — the source gave no indication this row was a member,
+  so any match here deserves a second look regardless of the confidence score. (This is what
+  caught a real false match: a Speaker's-office staffer named "William Johnson" was briefly
+  matched to Bill Johnson (R-OH), an unrelated former member who'd resigned seven months before
+  the trip — see `MEMBER_MATCHED_BY_NAME_DATE` below.)
 - **MEMBER_DISAMBIGUATED_BY_COMMITTEE** — **report.** Two or more members share the exact same
   name and served at the same time, so a hand-curated list matching sponsoring-committee
   membership was used to pick the right one. Fairly trustworthy since it's backed by curated
@@ -146,8 +153,11 @@ Congress in the official roster.
   matches the member's current surname in the roster; confirmed by checking that person was
   actually in office at the time. Fairly reliable, but worth confirming the name change.
 - **MEMBER_MATCHED_BY_NAME_DATE** — **report.** The source line was missing the usual "Hon."
-  title, but the bare name still matched a sitting member for that period. Relies on a weaker
-  signal than usual — worth a second look to rule out a staffer sharing a member's name.
+  title, but the bare name still exact-matched a member who was serving within a month of the
+  traveler's actual travel dates (not just "serving sometime that year" — a member who resigns in
+  January would otherwise still count as serving for the rest of the year). Relies on a weaker
+  signal than usual — worth a second look to rule out a staffer sharing a member's name. Always
+  paired with `BARE_NAME_MEMBER_MATCH`.
 - **MEMBER_MATCH_INCONCLUSIVE** — **report.** The name plausibly matches two or more members and
   there wasn't enough information to tell which. No ID was assigned — needs manual research.
 - **MEMBER_UNMATCHED** — **report.** The name carried a title ("Hon.", "Dr.", etc.) — a real

@@ -138,6 +138,36 @@ class TestWasServing:
         assert seeded_matcher.was_serving("Z999999", 2018) is False
 
 
+class TestWasServingMonth:
+    """Direct tests for the tighter, month-precision date-verification gate.
+
+    Goodlatte's term ends 2019-01-03, so (2019, 1) is indexed as served but
+    (2019, 2) onward is not -- unlike `was_serving`, which would say he was
+    serving 'in 2019' for the whole year because part of it overlaps his
+    term.
+    """
+
+    def test_serving_in_exact_month(self, seeded_matcher):
+        assert seeded_matcher.was_serving_month("G000289", 2018, 6) is True
+
+    def test_not_serving_several_months_after_term_ends(self, seeded_matcher):
+        """Regression for a real false match: a member who resigned in
+        January still passed the old whole-year `was_serving` check for a
+        trip in August of that same year. Month precision rejects it."""
+        assert seeded_matcher.was_serving_month("G000289", 2019, 8) is False
+
+    def test_window_of_one_month_captures_filing_lag(self, seeded_matcher):
+        """Term ends 2019-01-03; February 2019 is within a 1-month window
+        of the last month he actually served (January)."""
+        assert seeded_matcher.was_serving_month("G000289", 2019, 2, window_months=1) is True
+
+    def test_window_zero_strict(self, seeded_matcher):
+        assert seeded_matcher.was_serving_month("G000289", 2019, 2, window_months=0) is False
+
+    def test_unknown_bioguide_returns_false(self, seeded_matcher):
+        assert seeded_matcher.was_serving_month("Z999999", 2018, 6) is False
+
+
 class TestBareNameDateVerifiedMatch:
     """The bare-name recovery path: a bare 'First Last' (no Hon. prefix) tries
     HON.-prefixed exact lookups against members.csv, accepted only if the
@@ -171,6 +201,29 @@ class TestBareNameDateVerifiedMatch:
         bioguide, _, flags = _match_member(
             "Robert Goodlatte",
             [],
+            member_index,
+            seeded_matcher,
+            period=period,
+        )
+        assert bioguide is None
+        assert "MEMBER_MATCHED_BY_NAME_DATE" not in flags
+        assert "STAFF_UNMATCHED" in flags
+
+    def test_bare_name_rejected_when_member_resigned_earlier_same_year(self, seeded_matcher):
+        """Regression for a real false match: a staffer named 'Robert
+        Goodlatte' traveling in August 2019 must NOT match 'HON. ROBERT
+        GOODLATTE' just because Goodlatte's term overlapped January 2019
+        (it ended 2019-01-03) -- a whole-year check would wrongly accept
+        this trip, seven months after he'd left office. Month-precision
+        date verification rejects it."""
+        from official_foreign_travel.parsing.header import Period
+
+        member_index = {"HON. ROBERT GOODLATTE": "G000289"}
+        segments = [dated_segment(date(2019, 8, 10), date(2019, 8, 15))]
+        period = Period(start=date(2019, 7, 1), end=date(2019, 9, 30), year=2019, quarter=3, raw="")
+        bioguide, _, flags = _match_member(
+            "Robert Goodlatte",
+            segments,
             member_index,
             seeded_matcher,
             period=period,
