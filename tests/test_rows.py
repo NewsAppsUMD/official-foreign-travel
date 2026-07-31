@@ -5,7 +5,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from official_foreign_travel.parsing.costs import costs_has_data, parse_footnote_map
-from official_foreign_travel.parsing.layout import detect_layout
+from official_foreign_travel.parsing.layout import ColumnSpan, TableLayout, detect_layout
 from official_foreign_travel.parsing.rows import _looks_like_traveler_row_name, extract_rows
 from official_foreign_travel.parsing.segmenter import segment_tables
 
@@ -420,3 +420,103 @@ class TestCrossBlockContinuedMerge:
         rose = next(t for t in travelers if "Rose" in t.name)
         assert len(rose.segments) >= 1
         assert "SEGMENT_WITHOUT_TRAVELER_NAME" not in flags
+
+
+def _synthetic_layout():
+    """A simple fixed-width layout for constructing rows directly, bypassing
+    layout auto-detection so these tests isolate extract_rows's own logic."""
+    bounds = [0, 40, 52, 64, 90, 102, 114, 126, 138, 150, 162, 174]
+    return TableLayout(
+        name=ColumnSpan(bounds[0], bounds[1]),
+        arrival=ColumnSpan(bounds[1], bounds[2]),
+        departure=ColumnSpan(bounds[2], bounds[3]),
+        country=ColumnSpan(bounds[3], bounds[4]),
+        cost_columns=tuple(
+            ColumnSpan(bounds[i], bounds[i + 1] if i + 1 < len(bounds) else None)
+            for i in range(4, len(bounds))
+        ),
+        confidence=0.8,
+        fingerprint=tuple(bounds),
+        data_row_derived=False,
+    )
+
+
+def _row(name="", arrival="", departure="", country="", cost="", cost_col=1):
+    layout = _synthetic_layout()
+    parts = [""] * 12
+    parts[0] = name
+    parts[1] = arrival
+    parts[2] = departure
+    parts[3] = country
+    parts[4 + cost_col] = cost
+    bounds = [0, 40, 52, 64, 90, 102, 114, 126, 138, 150, 162, 174, 186]
+    line = ""
+    for i, part in enumerate(parts):
+        width = bounds[i + 1] - bounds[i]
+        line += part.ljust(width)[:width]
+    return line
+
+
+class TestDatelessNameRowWithOwnData:
+    """A name row with no date tokens at all, but its own country and/or
+    cost data, is a complete (if dateless) record on its own -- not a bare
+    CODEL-style introduction whose itinerary follows on later rows. The old
+    single-slot `pending_name` mechanism would defer such a name and then
+    either silently overwrite it with the next such name, or discard it
+    entirely if the table ends without a dated row ever arriving to
+    consume it.
+    """
+
+    def test_lone_dateless_person_not_discarded_when_table_has_no_dates_at_all(self):
+        """Regression for a real case (Delegation to Egypt,
+        2007q3sep06-003): a table where every row is fully dot-filled for
+        dates. The old code deferred each name into pending_name and
+        discarded it unflushed once the loop ended with no dated row ever
+        appearing -- the whole table produced zero travelers."""
+        layout = _synthetic_layout()
+        line = _row(name="Hon. Betty McCollum", country="Egypt", cost="500.00", cost_col=3)
+        travelers, total, flags = extract_rows([(1, line)], layout, {})
+        assert len(travelers) == 1
+        mccollum = travelers[0]
+        assert mccollum.name.strip() == "Hon. Betty McCollum"
+        assert len(mccollum.segments) == 1
+        seg = mccollum.segments[0]
+        assert seg.arrival_raw == ""
+        assert seg.departure_raw == ""
+        assert seg.country_raw.rstrip(".") == "Egypt"
+        assert costs_has_data(seg.costs)
+
+    def test_bare_codel_label_row_still_defers_to_next_dated_row(self):
+        """A genuine CODEL-style label row (name only, no country, no cost
+        of its own) must still carry forward via pending_name to the next
+        dated row -- this behavior must not regress."""
+        layout = _synthetic_layout()
+        label_line = _row(name="Hon. Gregorio Sablan")
+        dated_line = _row(arrival="9/2", departure="9/5", country="Kuwait", cost="100.00", cost_col=3)
+        travelers, total, flags = extract_rows(
+            [(1, label_line), (2, dated_line)], layout, {}
+        )
+        assert len(travelers) == 1
+        assert travelers[0].name.strip() == "Hon. Gregorio Sablan"
+        assert len(travelers[0].segments) == 1
+        assert travelers[0].segments[0].arrival_raw == "9/2"
+        assert "SEGMENT_WITHOUT_TRAVELER_NAME" not in flags
+
+    def test_incomplete_date_fragment_defers_rather_than_creating_dateless_record(self):
+        """Regression: a name row with a country but INCOMPLETE date
+        fragments ('1/' with no day -- not truly blank) must still defer
+        via pending_name, not be treated as a complete dateless record.
+        The real, fully-dated segment is on the very next row; treating
+        the fragment row as complete would give the traveler a country-only
+        phantom segment instead of attaching to their real itinerary."""
+        layout = _synthetic_layout()
+        fragment_line = _row(name="Uyen T. Dinh", arrival="1/", departure="1/", country="France")
+        dated_line = _row(arrival="1/6", departure="1/12", country="Vietnam", cost="1300.00", cost_col=1)
+        travelers, total, flags = extract_rows(
+            [(1, fragment_line), (2, dated_line)], layout, {}
+        )
+        assert len(travelers) == 1
+        dinh = travelers[0]
+        assert dinh.name.strip() == "Uyen T. Dinh"
+        assert len(dinh.segments) == 1
+        assert dinh.segments[0].country_raw.rstrip(".") == "Vietnam"

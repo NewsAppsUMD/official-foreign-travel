@@ -320,17 +320,60 @@ def extract_rows(
 
             name = clean_cell(layout.name.slice(line))
             if current is None or not current.segments:
-                # A name row with no usable date tokens can still be the
-                # first row of a traveler -- either the dates are written
-                # incompletely ("1/" with no day) or the row is a CODEL
-                # label-row that names a traveler whose itinerary follows
-                # on the subsequent rows. Carry the name forward so the
-                # next dated row attaches to it instead of becoming an
-                # orphan flagged SEGMENT_WITHOUT_TRAVELER_NAME. The
-                # _looks_like_personal_name guard rejects sub-labels like
-                # "Commercial airfare" (the second word is lowercase) and
-                # multi-line sponsor headings ("Visit to Kuwait, ...").
                 if current is None and name and _looks_like_personal_name(name):
+                    # Blank (dot-filled) date cells mean the source is
+                    # asserting "no date here" -- but non-blank, merely
+                    # unparseable text ("1/" with no day) means a real date
+                    # was attempted and likely got OCR-damaged, with the
+                    # intended full date on the very next row (see
+                    # test_incomplete_date_row_carries_name_forward). Only
+                    # the former is safe to treat as a complete record;
+                    # the latter must still defer via pending_name so it
+                    # doesn't steal a country/cost-less row over the real
+                    # segment that follows.
+                    dates_blank = not clean_cell(layout.arrival.slice(line)) and not clean_cell(
+                        layout.departure.slice(line)
+                    )
+                    country_here = clean_cell(layout.country.slice(line))
+                    if dates_blank and (country_here or costs_has_data(costs)):
+                        # This name row already carries its own country
+                        # and/or cost data -- a complete (if dateless)
+                        # record on its own, not a bare CODEL-style
+                        # introduction whose itinerary follows on later
+                        # rows. `pending_name` is a single slot: if the
+                        # table lists several such people in a row (e.g. a
+                        # delegation where every leg is fully dot-filled,
+                        # no dates ever appear), each subsequent name would
+                        # silently overwrite and discard the previous one
+                        # -- and if the table ends without a dated row
+                        # ever arriving to consume it, even the last name
+                        # is discarded, having never been flushed to a
+                        # real traveler. Building the segment now avoids
+                        # both failure modes.
+                        segment = SegmentDraft(
+                            arrival_raw="",
+                            departure_raw="",
+                            country_raw=country_here,
+                            costs=costs,
+                            flags=cost_flags,
+                            source_lines=[line_no],
+                        )
+                        current = _attach_named_segment(
+                            name, segment, travelers, travelers_by_name
+                        )
+                        continue
+                    # A bare name with no usable date tokens can still be
+                    # the first row of a traveler -- either the dates are
+                    # written incompletely ("1/" with no day) or the row is
+                    # a CODEL label-row that names a traveler whose
+                    # itinerary follows on the subsequent rows. Carry the
+                    # name forward so the next dated row attaches to it
+                    # instead of becoming an orphan flagged
+                    # SEGMENT_WITHOUT_TRAVELER_NAME. The
+                    # _looks_like_personal_name guard rejects sub-labels
+                    # like "Commercial airfare" (the second word is
+                    # lowercase) and multi-line sponsor headings ("Visit to
+                    # Kuwait, ...").
                     pending_name = name
                 continue
             if name:
