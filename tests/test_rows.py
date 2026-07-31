@@ -654,6 +654,29 @@ class TestIsPersonNamedRow:
     def test_cancel_annotation_with_vocab_word_rejected(self):
         assert _is_person_named_row("Ground transportation (Cancelled)") == (False, True)
 
+    def test_surname_matching_common_word_not_rejected(self):
+        """'Day' is a real surname (Corinne Day, Tim Day, Jonathan Day all
+        appear in the corpus) that happens to collide with vocabulary once
+        considered for label rows like 'Travel day' -- but that phrase only
+        ever appears in the *country* column in this corpus, never as a
+        name-column label, so it was dropped from LABEL_VOCAB rather than
+        risk rejecting real people."""
+        assert _is_person_named_row("Corinne Day") == (True, False)
+
+    def test_comma_typo_in_honorific_still_recognized(self):
+        assert _is_person_named_row("Hon, Stephen Lynch") == (True, False)
+
+    def test_honorific_name_with_trailing_annotation_not_rejected(self):
+        """A curated honorific followed by a real name, plus a trailing
+        parenthetical/context note that isn't part of the name, still
+        names a real person -- only a *leading* name-shaped run after the
+        honorific is required, and a vocab word appearing solely in the
+        trailing note (e.g. 'CODEL') doesn't disqualify the row."""
+        assert _is_person_named_row("Hon. Mike Rogers (AL)") == (True, False)
+        assert _is_person_named_row("Hon. Harold Rogers of Kentucky") == (True, False)
+        assert _is_person_named_row("Hon. Bud Cramer (App.)") == (True, False)
+        assert _is_person_named_row("Hon. Mac Collins (Rogers CODEL)") == (True, False)
+
 
 class TestPersonDatelessRowPromotion:
     """A dateless row naming a SPECIFIC person (a booked traveler who

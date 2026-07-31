@@ -10,9 +10,10 @@ treating anything left over as country-cell overflow is robust to that.
 
 import re
 from dataclasses import dataclass, field
+from itertools import takewhile
 from typing import Optional
 
-from ..utils.text import clean_cell, get_honorific
+from ..utils.text import clean_cell
 from .costs import CostGroup, Costs, costs_has_data, merge_costs, parse_cost_cell
 from .header import NAME_WORD_RE
 from .layout import TableLayout
@@ -78,8 +79,10 @@ CANCEL_ANNOTATION_RE = re.compile(
 # in "Misc. delegation expenses"), which would misclassify cost labels as
 # people. "Speaker" is included (usually printed with no trailing period,
 # e.g. "Speaker Hastert") since these reports do use it as an honorific.
+# `[.,]?` (not just `\.?`) tolerates a comma typo'd in place of the period
+# ("Hon, Stephen Lynch"), an OCR/transcription slip seen in the corpus.
 PERSON_HONORIFIC_RE = re.compile(
-    r"^(?:Hon|Mr|Ms|Mrs|Dr|Rep|Rev|Sen|Adm|Fr|Amb|Comm|Cong|Maj|Sgt|Min|Speaker)\b\.?\s*",
+    r"^(?:Hon|Mr|Ms|Mrs|Dr|Rep|Rev|Sen|Adm|Fr|Amb|Comm|Cong|Maj|Sgt|Min|Speaker)\b[.,]?\s*",
     re.IGNORECASE,
 )
 # Cost/expense/logistics vocabulary that can appear in Title Case (passing
@@ -96,7 +99,7 @@ LABEL_VOCAB = frozenset(
         "EMBASSY", "DEPT", "DELEGATION", "CODEL", "STAFFDEL", "COMMERCIAL", "OFFICIAL",
         "REPRESENTATIONAL", "MISC", "NETWORK", "ADAPTER", "PREPAID", "GROUND", "HOTEL",
         "LODGING", "TRIP", "TRAVEL", "PER", "DIEM", "REPORT", "VEHICLES", "PERSONAL",
-        "STATE", "CONTROL", "RETURN", "ONE-WAY", "SUPPLEMENT", "SUPPLEMENTAL", "DAY",
+        "STATE", "CONTROL", "RETURN", "ONE-WAY", "SUPPLEMENT", "SUPPLEMENTAL",
         "CANCELLED", "CANCELED", "TAXES", "CHARGES",
     }
 )
@@ -168,25 +171,14 @@ def _looks_like_traveler_row_name(name: str) -> bool:
     person), not a cost/expense/note label row ("Delegation expenses",
     "Luncheon", "Travel day", "(CODEL McCaul)").
 
-    A name carrying a recognized honorific ("Hon.", "Mr.", "Speaker", etc.)
-    is always a person, even when only a bare surname follows -- a common
-    CODEL-list shorthand ("Hon. Hastert"). Otherwise, real traveler names in
-    this corpus are consistently capitalized on every word ("Bart Reising",
-    "Speaker Hastert"); label rows are typically capitalized only on their
-    first word ("Delegation expenses", "Ground transportation") or are a
-    single generic word ("Luncheon", "Interpreters"). A name wrapped in
-    parentheses ("(CODEL McCaul)") is a sponsor/trip annotation that bled
-    into the name column, never a person.
+    Delegates to `_is_person_named_row`, the same tiered classifier used to
+    decide whether a dateless row gets promoted to its own traveler -- one
+    person-classifier everywhere, rather than this function's own looser
+    get_honorific-based check (which matched any leading "Word.", including
+    non-honorifics like "Misc." -- see PERSON_HONORIFIC_RE for the curated
+    list this now uses instead).
     """
-    stripped = name.strip().rstrip(",")
-    if not stripped or stripped.startswith("("):
-        return False
-    if get_honorific(stripped):
-        return True
-    words = stripped.split()
-    if len(words) < 2:
-        return False
-    return all(NAME_WORD_RE.match(w) for w in words)
+    return _is_person_named_row(name)[0]
 
 
 def _is_person_named_row(name: str) -> tuple[bool, bool]:
@@ -205,7 +197,16 @@ def _is_person_named_row(name: str) -> tuple[bool, bool]:
     Three ways a de-annotated, vocabulary-free name is confidently a person:
     1. A curated honorific (PERSON_HONORIFIC_RE) prefixes a name-shaped
        remainder -- even a bare surname ("Hon. Hastert"), a common
-       CODEL-list shorthand.
+       CODEL-list shorthand. Only a *leading* name-shaped prefix of the
+       remainder is required; anything after the first non-name-shaped word
+       is treated as a trailing annotation and ignored ("Hon. Mike Rogers
+       (AL)", "Hon. Harold Rogers of Kentucky", "Hon. Bud Cramer (App.)" all
+       still name a real person even though the parenthetical/state/context
+       note that follows isn't part of their name). The LABEL_VOCAB check
+       below is scoped to that leading prefix, not the whole row -- a
+       trailing note can legitimately contain a vocab word without making
+       the row non-person ("Hon. Mac Collins (Rogers CODEL)" is a real
+       person who joined a CODEL, not the label "CODEL" itself).
     2. A "(Did not travel)"/"(Cancel Fees)"/"(no show)" annotation on an
        otherwise name-shaped base -- the source is explicitly telling us
        this row is about a specific person, not a generic cost line.
@@ -230,17 +231,19 @@ def _is_person_named_row(name: str) -> tuple[bool, bool]:
     if not base or base.startswith("("):
         return False, False
 
-    vocab_words = re.findall(r"[A-Za-z-]+", base.upper())
-    if any(w in LABEL_VOCAB for w in vocab_words):
-        return False, had_annotation
+    def has_vocab_word(words: list[str]) -> bool:
+        vocab_words = re.findall(r"[A-Za-z-]+", " ".join(words).upper())
+        return any(w in LABEL_VOCAB for w in vocab_words)
 
     honorific_match = PERSON_HONORIFIC_RE.match(base)
     if honorific_match:
         remainder_words = base[honorific_match.end() :].strip().split()
-        if remainder_words and (
-            len(remainder_words) == 1 or all(NAME_WORD_RE.match(w) for w in remainder_words)
-        ):
-            return True, had_annotation
+        name_words = list(takewhile(NAME_WORD_RE.match, remainder_words))
+        if not name_words or has_vocab_word(name_words):
+            return False, had_annotation
+        return True, had_annotation
+
+    if has_vocab_word(base.split()):
         return False, had_annotation
 
     base_words = base.split()
