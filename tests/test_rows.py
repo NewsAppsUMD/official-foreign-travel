@@ -240,6 +240,52 @@ class TestExtractRows:
         assert costs_has_data(mccaul.segments[0].costs)
         assert len(mccaul.segments) == 1
 
+    def test_codel_cancelled_placeholder_does_not_swallow_the_roster(self):
+        """A cancelled CODEL is sometimes recorded with the literal words
+        'CODEL'/'cancelled' filling both date cells instead of dates --
+        same failure mode as 'N/A', different wording. Without recognizing
+        this as an equally valid date-zone token, the entire table (9
+        people) collapsed to zero travelers: the first name had no dated
+        row to attach to (deferred via pending_name, then discarded), and
+        every subsequent name was read as a labeled cost-supplement row
+        for whoever came before it, which also never existed."""
+        block = find_block("2026q2apr29.txt", "COMMITTEE ON NATURAL RESOURCES")
+        travelers, total, flags = rows_for(block)
+        expected_names = {
+            "Hon. Bruce Westerman", "Vivian Moeglein", "Christopher Marklund",
+            "Madeline Kelley", "Aneila Butler", "Robert MacGregor",
+            "Michelle Lane", "Richard O'Connell", "Matthew Muirraugi",
+        }
+        names = {t.name for t in travelers}
+        assert expected_names <= names
+        for name in expected_names:
+            traveler = next(t for t in travelers if t.name == name)
+            assert len(traveler.segments) == 1
+            seg = traveler.segments[0]
+            assert seg.arrival_raw == ""
+            assert seg.departure_raw == ""
+            assert costs_has_data(seg.costs)
+        # Each person's own cost, not merged with a neighbor's.
+        kelley = next(t for t in travelers if t.name == "Madeline Kelley")
+        assert kelley.segments[0].costs.total.us_dollar.amount == Decimal("7046.98")
+        westerman = next(t for t in travelers if t.name == "Hon. Bruce Westerman")
+        assert westerman.segments[0].costs.total.us_dollar.amount == Decimal("7650.49")
+
+    def test_canceled_single_l_not_confused_with_cancelled_placeholder(self):
+        """Regression: 'canceled' (single-L, American spelling, appearing as
+        a trailing annotation right after a REAL date -- '5/31 (CANCELED)')
+        is a different word from the 'cancelled' (double-L) CODEL
+        placeholder. An earlier, unanchored version of the placeholder
+        pattern partial-matched the 'cancel' prefix inside 'CANCELED',
+        which stole the second real date token and corrupted the segment
+        (empty departure date, garbled country). Word boundaries on the
+        placeholder pattern must keep these apart."""
+        block = find_block("2023q3sep08.txt", "COMMITTEE ON WAYS AND MEANS")
+        travelers, total, flags = rows_for(block)
+        carey = next(t for t in travelers if "Carey" in t.name)
+        assert carey.segments[0].arrival_raw == "5/31"
+        assert carey.segments[0].departure_raw == "6/4"
+
     def test_dash_ditto_mark_attaches_to_traveler_above_not_treated_as_new(self):
         """Some tables print a bare '--' in the name column on continuation
         rows instead of leaving it blank. '--' is non-empty (so it doesn't

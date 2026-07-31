@@ -30,6 +30,27 @@ DATE_TOKEN_RE = re.compile(r"\d{1,2}/\d{1,2}")
 # two-token branch build a real (dateless) segment for them instead.
 NA_TOKEN_RE = re.compile(r"N/A", re.IGNORECASE)
 DATE_OR_NA_TOKEN_RE = re.compile(r"\d{1,2}/\d{1,2}|N/A", re.IGNORECASE)
+# A CODEL that gets cancelled before departure is sometimes recorded with the
+# literal words "CODEL"/"cancelled" filling both date cells instead of dates
+# -- same shape as "N/A", different wording, so it needs the same treatment
+# for the same reason (else every traveler on the roster after the first
+# gets silently merged into whoever came before them). This is a narrow,
+# evidence-based match for the one wording seen in the corpus, not a general
+# "any non-date text" rule -- a wrapped variant that splits across two
+# printed lines ("Didn't"/"Depart", "Trip"/"Cancelled") isn't caught here,
+# since a single line's text is all this function ever sees. Word-bounded on
+# both ends: an unbounded "cancel(?:led)?" would partial-match the "cancel"
+# prefix inside "canceled" (single-L American spelling, e.g. "5/31
+# (CANCELED)"), a *different* word that appears alongside real dates
+# elsewhere in the corpus and must not be mistaken for this placeholder.
+#
+# Unlike DATE_OR_NA_TOKEN_RE, this is deliberately NOT searched from column
+# 0 -- "CODEL" and "Codel" are common substrings of real travelers' own
+# printed names ("Hon. Mac Collins (Rogers CODEL)", "Codel Solomon"), which
+# must not be mistaken for this row's own date placeholder. It's only
+# checked once real dates are already ruled out, and only from where the
+# date columns actually start (see `_find_date_tokens`).
+PLACEHOLDER_TOKEN_RE = re.compile(r"\bCODEL\b|\bcancel(?:led)?\b", re.IGNORECASE)
 RULE_RE = re.compile(r"^\s*-{10,}")
 # Footnote *definition* lines ("\3\ Military air transportation.") follow the
 # committee total and closing rule, outside the traveler data region -- but
@@ -168,7 +189,9 @@ def _attach_named_segment(
     return draft
 
 
-def _find_date_tokens(zone: str) -> Optional[tuple[re.Match, re.Match]]:
+def _find_date_tokens(
+    zone: str, placeholder_min_start: int = 0
+) -> Optional[tuple[re.Match, re.Match]]:
     """Find the first two M/D-or-"N/A" token matches within a zone, searched
     from column 0.
 
@@ -176,24 +199,38 @@ def _find_date_tokens(zone: str) -> Optional[tuple[re.Match, re.Match]]:
     robust to names that overflow their nominal column width -- a common
     failure mode where a long name pushes the actual date text to the right
     of where the layout expected it to start.
+
+    Falls back to the CODEL/cancelled placeholder only once real dates are
+    ruled out, and only at or after `placeholder_min_start` (normally the
+    layout's arrival-column start) -- unlike real dates, this text is NOT
+    searched from column 0, since "CODEL" is also a substring of real
+    travelers' own printed names (see PLACEHOLDER_TOKEN_RE).
     """
     tokens = list(DATE_OR_NA_TOKEN_RE.finditer(zone))
-    if len(tokens) < 2:
+    if len(tokens) >= 2:
+        return tokens[0], tokens[1]
+    placeholder_tokens = [
+        m for m in PLACEHOLDER_TOKEN_RE.finditer(zone) if m.start() >= placeholder_min_start
+    ]
+    if len(placeholder_tokens) < 2:
         return None
-    return tokens[0], tokens[1]
+    return placeholder_tokens[0], placeholder_tokens[1]
 
 
 def _date_token_raw(match: re.Match) -> str:
-    """The raw date text for a token match, normalizing "N/A" to empty.
+    """The raw date text for a token match, normalizing "N/A" and the
+    CODEL/cancelled placeholder text to empty.
 
-    An explicit "N/A" means the source is asserting there's no date here --
-    the same thing an empty/dot-filled cell means -- so it should resolve to
-    ARRIVAL_CELL_EMPTY/DEPARTURE_CELL_EMPTY downstream, not
-    ARRIVAL_DATE_UNPARSEABLE/DEPARTURE_DATE_UNPARSEABLE (reserved for
-    non-blank text that doesn't parse as a date).
+    An explicit "N/A" (or "CODEL"/"cancelled") means the source is asserting
+    there's no date here -- the same thing an empty/dot-filled cell means --
+    so it should resolve to ARRIVAL_CELL_EMPTY/DEPARTURE_CELL_EMPTY
+    downstream, not ARRIVAL_DATE_UNPARSEABLE/DEPARTURE_DATE_UNPARSEABLE
+    (reserved for non-blank text that doesn't parse as a date).
     """
     text = match.group()
-    return "" if NA_TOKEN_RE.fullmatch(text) else text
+    if NA_TOKEN_RE.fullmatch(text) or PLACEHOLDER_TOKEN_RE.fullmatch(text):
+        return ""
+    return text
 
 
 def _find_single_date_token(zone: str) -> Optional[re.Match]:
@@ -268,7 +305,7 @@ def extract_rows(
             continue
 
         search_zone = line[: layout.country.start]
-        token_matches = _find_date_tokens(search_zone)
+        token_matches = _find_date_tokens(search_zone, placeholder_min_start=layout.arrival.start)
         costs, cost_flags = _parse_cost_cells(line, layout, footnote_map)
 
         if token_matches is None:
