@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Trip Review</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <h1>Trip Review <a class="nav-link" href="/">&larr; Filings</a></h1>
+  <div id="progress"></div>
+  <select id="trip-flag-filter">
+    <option value="">All flags</option>
+  </select>
+  <label id="attention-only-label">
+    <input type="checkbox" id="attention-only" checked> Needs attention only
+  </label>
+  <input type="search" id="trip-search" aria-label="Search trips" placeholder="Search name, bioguide, or trip id">
+  <p class="hint">Trips are derived from the loaded reports when the server starts --
+    corrections saved during this session appear here after restarting oft-review.</p>
+  <table id="trips-table">
+    <thead>
+      <tr>
+        <th data-sort="name">Traveler</th>
+        <th data-sort="start_date">Start</th>
+        <th data-sort="end_date">End</th>
+        <th>Countries</th>
+        <th data-sort="n_legs">Legs</th>
+        <th data-sort="n_filings">Filings</th>
+        <th>Flags</th>
+      </tr>
+    </thead>
+    <tbody id="trips-body"></tbody>
+  </table>
+  <script src="/app.js"></script>
+  <script>renderTrips();</script>
+</body>
+</html>

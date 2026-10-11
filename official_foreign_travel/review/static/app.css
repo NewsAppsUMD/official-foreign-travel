@@ -134,7 +134,8 @@ td a:hover { text-decoration: underline; }
   align-items: center;
 }
 .field-row span { flex: 0 0 42%; color: var(--muted); }
-.field-row input {
+.field-row input,
+.field-row textarea {
   flex: 1;
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 0.8rem;
@@ -142,7 +143,9 @@ td a:hover { text-decoration: underline; }
   border-radius: 4px;
   padding: 0.2rem 0.4rem;
 }
-.field-row input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.field-row textarea { min-height: 3.5rem; resize: vertical; }
+.field-row input:focus,
+.field-row textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
 .cost-grid { width: auto; margin: 0.25rem 0 0.75rem; background: none; }
 .cost-grid th, .cost-grid td { border: none; padding: 0.12rem 0.35rem; }
@@ -189,3 +192,46 @@ td a:hover { text-decoration: underline; }
 .traveler-meta { color: var(--muted); font-size: 0.75rem; }
 .traveler-body { padding: 0.5rem 0.6rem; }
 .traveler-section.collapsed .traveler-body { display: none; }
+
+/* --- Trips view --- */
+
+.nav-link { font-size: 0.85rem; font-weight: 500; color: var(--accent); text-decoration: none; margin-left: 0.75rem; }
+.nav-link:hover { text-decoration: underline; }
+
+#trip-search {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-left: 0.5rem;
+  font: inherit;
+}
+#attention-only-label { font-size: 0.9rem; margin-left: 0.5rem; user-select: none; }
+
+.hint { color: var(--muted); font-size: 0.78rem; margin: 0.5rem 0 0; }
+
+#trips-body tr[data-trip-id] { cursor: pointer; }
+
+.trip-traveler { font-weight: 600; }
+.trip-sub { color: var(--muted); font-weight: 400; font-size: 0.72rem; }
+.countries-cell, .filings-cell { color: var(--muted); font-size: 0.78rem; }
+
+.trip-detail-row td { background: #eef1f5; }
+.trip-detail { padding: 0.4rem 0.6rem; }
+.trip-detail h4 {
+  margin: 0.5rem 0 0.25rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+/* Nested tables follow the .cost-grid convention: opt out of the main
+   table's sticky/uppercase header and surface background. */
+.trip-legs { margin-top: 0; margin-bottom: 0.4rem; background: none; }
+.trip-legs th {
+  position: static;
+  background: none;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.7rem;
+  font-weight: 500;
+}

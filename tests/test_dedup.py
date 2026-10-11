@@ -82,6 +82,54 @@ class TestDedupReports:
         assert original.superseded_by == "amend-002"
         assert amendment.superseded_by is None
 
+    def test_amended_report_with_corrected_end_date_supersedes_original(self):
+        original = make_report(
+            "orig-003",
+            "2024q1mar29.txt",
+            3,
+            "COMMITTEE ON HOMELAND SECURITY",
+            date(2024, 2, 16),
+            date(2024, 2, 20),
+        )
+        amendment = make_report(
+            "amend-004",
+            "2024q1mar29.txt",
+            4,
+            "COMMITTEE ON HOMELAND SECURITY",
+            date(2024, 2, 16),
+            date(2024, 2, 21),
+            amended=True,
+        )
+
+        dedup_reports([original, amendment])
+
+        assert original.superseded_by == "amend-004"
+        assert amendment.superseded_by is None
+
+    def test_amended_report_with_different_start_date_is_not_merged(self):
+        original = make_report(
+            "orig-003",
+            "2024q1mar29.txt",
+            3,
+            "COMMITTEE ON HOMELAND SECURITY",
+            date(2024, 2, 16),
+            date(2024, 2, 20),
+        )
+        amendment = make_report(
+            "amend-004",
+            "2024q1mar29.txt",
+            4,
+            "COMMITTEE ON HOMELAND SECURITY",
+            date(2024, 2, 17),
+            date(2024, 2, 21),
+            amended=True,
+        )
+
+        dedup_reports([original, amendment])
+
+        assert original.superseded_by is None
+        assert amendment.superseded_by is None
+
     def test_amended_wins_even_if_listed_after_winner_in_input_order(self):
         """Winner selection shouldn't depend on which element comes first in the list."""
         amendment = make_report(

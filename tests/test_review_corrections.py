@@ -207,6 +207,19 @@ class TestApplyCorrections:
         # per_diem (100) + transport (50) = 150, no longer matches the corrected total (999) -> flagged
         assert "ROW_TOTAL_INCLUDES_UNBROKEN_COSTS" in segment.flags
 
+    def test_edit_notes_is_applied_to_segment(self):
+        report = _report("r-1")
+        corrections = {
+            "r-1": {
+                "status": "edited",
+                "edits": {"travelers[0].segments[0].notes": ["Dates verified."]},
+            }
+        }
+
+        result = apply_corrections([report], corrections)
+
+        assert result[0].travelers[0].segments[0].notes == ["Dates verified."]
+
     def test_correction_fixing_arithmetic_clears_stale_row_sum_mismatch(self):
         report = _report("r-1")
         segment = report.travelers[0].segments[0]

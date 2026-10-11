@@ -112,6 +112,13 @@ oft-parse report_text/ output.json --llm-fallback --llm-model llama3.1:70b-cloud
 # Merge in human corrections from a prior review session (see "Reviewing Flagged
 # Reports" below) before writing output
 oft-parse report_text/ output.json --apply-corrections corrections.json
+
+# Also write canonical trip records (one record per person-journey, merged
+# across filings by dates and destinations). Format follows the extension:
+# .csv (one row per trip), .jsonl (one object per trip), .json (nested trips
+# with per-leg detail and per-filing provenance; .gz compresses).
+oft-parse report_text/ output.json --trips trips.csv
+oft-parse report_text/ output.json --trips trips.jsonl --apply-corrections corrections.json
 ```
 
 ### Reviewing Flagged Reports
@@ -146,6 +153,16 @@ Corrected reports are tagged `MANUALLY_CORRECTED` (edited) or `HUMAN_CONFIRMED`
 everything else. Because corrections live in their own file keyed by `report_id`, this
 works no matter how many times the corpus gets re-parsed from scratch -- a correction is
 never tied to one specific run's output.
+
+The trips view (`/trips.html`, "Trips" link at the top of the filings list) shows
+the canonical trip records derived from the same loaded reports: one row per
+person-journey, defaulting to the "needs attention" subset (date/destination
+conflicts, name-only merges, mixed-identity merges, undated trips). Clicking a
+row expands its legs and per-filing provenance; each filing links into the
+familiar report detail page, so a conflict is fixed by correcting the underlying
+filing and restarting `oft-review`. Trip records are read-only -- corrections are
+still made on filings, never on trips. The trip badges are defined in
+`docs/review-glossary.md`.
 
 `--port`/`--host` control where the server binds (default `127.0.0.1:8765`; it only ever
 binds to localhost). `oft-review` binds only to `127.0.0.1` and has no authentication --
@@ -232,6 +249,28 @@ parser = ReportParser()
 reports = parser.parse_and_finalize(Path("report_text"))  # validated + deduplicated
 parser.write_json(reports, Path("output.json"))
 ```
+
+Canonical trip records (one `Trip` per person-journey, merged across filings by
+dates and destinations) are a pure derivation over the same report list:
+
+```python
+from pathlib import Path
+from official_foreign_travel.scrapers import ReportParser
+from official_foreign_travel.parsing.trips import build_trips
+
+parser = ReportParser()
+reports = parser.parse_and_finalize(Path("report_text"))
+trips = build_trips(reports)  # never mutates reports
+for t in trips:
+    if t.n_filings > 1:  # the same journey reported by more than one filing
+        print(t.trip_id, t.name, t.start_date, t.end_date, t.source_report_ids)
+```
+
+`build_trips` sees superseded filings; filter first with
+`serialize.visible_reports(reports, include_superseded=False)` (as
+`parser.write_trips_csv`/`write_trips_jsonl`/`write_trips_json` do) to match the
+default CLI behavior. See `about_the_data.md` for the match rule, merge flags,
+and trip-id format.
 
 ## Data Model
 

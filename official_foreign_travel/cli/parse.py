@@ -125,6 +125,18 @@ def main() -> int:
         help="Merge human corrections from this file (written by oft-review) into the output",
     )
     parser.add_argument(
+        "--trips",
+        type=Path,
+        help="Also write canonical trip records (one record per person-journey, "
+        "merged across filings by dates and destinations) to this file. Format "
+        "inferred from the extension: .csv (one row per trip), .jsonl (one "
+        "object per trip), or .json (nested trips with per-leg detail; .gz "
+        "compresses). Derived after dedup and --apply-corrections; superseded "
+        "filings are excluded unless --include-superseded. Trips are one "
+        "corpus-level file regardless of --split-by-year (a trip can span "
+        "publication years).",
+    )
+    parser.add_argument(
         "--log-level",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         default="INFO",
@@ -247,6 +259,29 @@ def main() -> int:
         stats = report_parser.write_jsonl(
             reports, args.output, include_superseded=args.include_superseded
         )
+
+    if args.trips:
+        # Always infer from the --trips filename, never from --format (which
+        # targets the primary output).
+        trips_format = _infer_format(args.trips, "auto")
+        if trips_format == "csv":
+            stats.update(
+                report_parser.write_trips_csv(
+                    reports, args.trips, include_superseded=args.include_superseded
+                )
+            )
+        elif trips_format == "jsonl":
+            stats.update(
+                report_parser.write_trips_jsonl(
+                    reports, args.trips, include_superseded=args.include_superseded
+                )
+            )
+        else:
+            stats.update(
+                report_parser.write_trips_json(
+                    reports, args.trips, include_superseded=args.include_superseded
+                )
+            )
 
     n_superseded = sum(1 for r in reports if r.superseded_by is not None)
     n_flagged = sum(1 for r in reports if r.flags)

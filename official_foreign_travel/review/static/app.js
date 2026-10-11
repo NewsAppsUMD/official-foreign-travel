@@ -266,6 +266,22 @@ function fieldRow(path, value, nullable = false, label = null) {
   return row;
 }
 
+function notesRow(path, notes) {
+  const row = document.createElement("label");
+  row.className = "field-row";
+  const label = document.createElement("span");
+  label.textContent = "notes";
+  label.title = path;
+  const textarea = document.createElement("textarea");
+  textarea.dataset.path = path;
+  textarea.dataset.notes = "true";
+  textarea.title = path;
+  textarea.value = (notes || []).join("\n");
+  row.appendChild(label);
+  row.appendChild(textarea);
+  return row;
+}
+
 function travelerStartsExpanded(traveler, ti, existingEdits) {
   const hasFlaggedSegment = traveler.segments.some(
     (s) => (s.flags && s.flags.length) || segmentHasMilitaryAirCost(s)
@@ -369,6 +385,7 @@ function renderForm(report, existingEdits) {
         fieldRow(`${prefix}.departure_date`, segment.departure_date, true, "departure_date")
       );
       body.appendChild(fieldRow(`${prefix}.country_raw`, segment.country_raw, false, "country_raw"));
+      body.appendChild(notesRow(`${prefix}.notes`, segment.notes));
       body.appendChild(costGrid(prefix, segment.costs));
     });
 
@@ -388,13 +405,22 @@ function renderForm(report, existingEdits) {
 
   Object.entries(existingEdits).forEach(([path, value]) => {
     const input = pane.querySelector(`[data-path="${CSS.escape(path)}"]`);
-    if (input) input.value = value ?? "";
+    if (input) {
+      input.value = input.dataset.notes === "true" ? (value || []).join("\n") : value ?? "";
+    }
   });
 }
 
 function collectEdits() {
   const edits = {};
   document.querySelectorAll("#form-pane [data-path]").forEach((input) => {
+    if (input.dataset.notes === "true") {
+      edits[input.dataset.path] = input.value
+        .split("\n")
+        .map((note) => note.trim())
+        .filter(Boolean);
+      return;
+    }
     const blank = input.value === "" && input.dataset.nullable === "true";
     edits[input.dataset.path] = blank ? null : input.value;
   });
@@ -460,4 +486,262 @@ async function renderDetail() {
   document.getElementById("save-btn").onclick = () => saveCorrection(reportId, "edited");
   document.getElementById("confirm-btn").onclick = () => saveCorrection(reportId, "confirmed_ok");
   await setupPrevNext(reportId);
+}
+
+// --- Trips view -----------------------------------------------------------
+
+const TRIPS_API = "/api/trips";
+
+// Column count of the trips table's header row in trips.html; the
+// empty-state row's colspan and the detail cell's colSpan must both match.
+const TRIP_COLUMN_COUNT = 7;
+
+// Mirror of parsing/trips.py TRIP_ATTENTION_FLAGS. The flags that make a
+// trip worth a second look; TRIP_SPLIT_BY_DATE_GAP is informational (a
+// filing legitimately reporting two separate journeys) and a plain
+// TRIP_MERGED_ACROSS_FILINGS is the merge working as intended.
+const ATTENTION_FLAGS = [
+  "TRIP_DATE_DESTINATION_CONFLICT",
+  "TRIP_MATCHED_NAME_ONLY",
+  "TRIP_MERGED_MIXED_IDENTITY",
+  "TRIP_DATES_MISSING",
+];
+
+const tripSort = { column: null, ascending: true };
+const TRIPS_FILTER_STORAGE_KEY = "oft-review-trips-filters";
+const tripDetailCache = new Map();
+// Trip ids whose detail fetch is in flight. Without this, a second click
+// while the first fetch is still pending would append the detail row twice.
+const tripsExpanding = new Set();
+
+function saveTripsFilters(state) {
+  try {
+    localStorage.setItem(TRIPS_FILTER_STORAGE_KEY, JSON.stringify(state));
+  } catch (e) {
+    // localStorage unavailable -- filters just won't persist
+  }
+}
+
+function loadTripsFilters() {
+  try {
+    return JSON.parse(localStorage.getItem(TRIPS_FILTER_STORAGE_KEY)) || {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function tripNeedsAttention(trip) {
+  return trip.flags.some((flag) => ATTENTION_FLAGS.includes(flag));
+}
+
+function populateTripFlagFilter(trips) {
+  const select = document.getElementById("trip-flag-filter");
+  const flags = Array.from(new Set(trips.flatMap((t) => t.flags))).sort();
+  flags.forEach((flag) => {
+    const option = document.createElement("option");
+    option.value = flag;
+    option.textContent = flag;
+    select.appendChild(option);
+  });
+}
+
+function updateTripSortIndicators() {
+  document.querySelectorAll("#trips-table th[data-sort]").forEach((th) => {
+    const isActive = th.dataset.sort === tripSort.column;
+    th.classList.toggle("sorted", isActive);
+    th.dataset.sortArrow = isActive ? (tripSort.ascending ? "▲" : "▼") : "";
+  });
+}
+
+async function renderTrips() {
+  const res = await fetch(TRIPS_API);
+  const trips = await res.json();
+  populateTripFlagFilter(trips);
+
+  const flagSelect = document.getElementById("trip-flag-filter");
+  const attentionOnly = document.getElementById("attention-only");
+  const search = document.getElementById("trip-search");
+
+  const saved = loadTripsFilters();
+  if (saved.attentionOnly !== undefined) attentionOnly.checked = saved.attentionOnly;
+  if (
+    saved.flag !== undefined &&
+    Array.from(flagSelect.options).some((o) => o.value === saved.flag)
+  ) {
+    flagSelect.value = saved.flag;
+  }
+  if (saved.search !== undefined) search.value = saved.search;
+  if (saved.sortColumn) {
+    tripSort.column = saved.sortColumn;
+    tripSort.ascending = saved.sortAscending !== false;
+  }
+
+  const rerender = () => {
+    saveTripsFilters({
+      attentionOnly: attentionOnly.checked,
+      flag: flagSelect.value,
+      search: search.value,
+      sortColumn: tripSort.column,
+      sortAscending: tripSort.ascending,
+    });
+    renderTripRows(trips, attentionOnly.checked, flagSelect.value, search.value);
+  };
+  flagSelect.onchange = rerender;
+  attentionOnly.onchange = rerender;
+  search.oninput = rerender;
+
+  document.querySelectorAll("#trips-table th[data-sort]").forEach((th) => {
+    th.onclick = () => {
+      const column = th.dataset.sort;
+      tripSort.ascending = tripSort.column === column ? !tripSort.ascending : true;
+      tripSort.column = column;
+      rerender();
+    };
+  });
+
+  const attention = trips.filter(tripNeedsAttention).length;
+  const conflicted = trips.filter((t) => t.flags.includes("TRIP_DATE_DESTINATION_CONFLICT")).length;
+  const merged = trips.filter((t) => t.flags.includes("TRIP_MERGED_ACROSS_FILINGS")).length;
+  document.getElementById("progress").textContent =
+    `${attention} need attention · ${conflicted} conflicted · ${merged} merged · ${trips.length} trips total`;
+
+  rerender();
+
+  // ?expand=<trip_id> deep link (e.g. from a conflict-partner link): open
+  // that trip if the current filters leave it visible.
+  const expand = new URLSearchParams(window.location.search).get("expand");
+  if (expand) {
+    const row = document.querySelector(`tr[data-trip-id="${CSS.escape(expand)}"]`);
+    if (row) {
+      expandTrip(expand);
+      row.scrollIntoView({ block: "center" });
+    }
+  }
+}
+
+function renderTripRows(trips, attentionOnly, flagFilter, search) {
+  let filtered = attentionOnly ? trips.filter(tripNeedsAttention) : trips;
+  if (flagFilter) filtered = filtered.filter((t) => t.flags.includes(flagFilter));
+  if (search) {
+    const needle = search.trim().toLowerCase();
+    filtered = filtered.filter(
+      (t) =>
+        t.name.toLowerCase().includes(needle) ||
+        (t.bioguide_id || "").toLowerCase().includes(needle) ||
+        t.trip_id.toLowerCase().includes(needle)
+    );
+  }
+  filtered = sortReports(filtered, tripSort.column, tripSort.ascending);
+  updateTripSortIndicators();
+
+  const body = document.getElementById("trips-body");
+  body.innerHTML = "";
+  if (!filtered.length) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td colspan="${TRIP_COLUMN_COUNT}">No trips match.</td>`;
+    body.appendChild(tr);
+    return;
+  }
+  filtered.forEach((t) => {
+    const tr = document.createElement("tr");
+    tr.dataset.tripId = t.trip_id;
+    const filingLinks = t.source_report_ids
+      .map((id) => `<a href="/report.html?id=${encodeURIComponent(id)}">${escapeHtml(id)}</a>`)
+      .join(", ");
+    tr.innerHTML = `
+      <td class="trip-traveler">${escapeHtml(t.name)}<div class="trip-sub">${escapeHtml(t.bioguide_id || "")}</div></td>
+      <td>${escapeHtml(t.start_date || "")}</td>
+      <td>${escapeHtml(t.end_date || "")}</td>
+      <td class="countries-cell">${escapeHtml(t.countries.join("; "))}</td>
+      <td>${t.n_legs}</td>
+      <td class="filings-cell">${filingLinks}</td>
+      <td></td>
+    `;
+    // Unflagged trips get a blank flags cell, like the filings list does for
+    // unflagged reports (flagBadges would render a "no flags" pill).
+    if (t.flags.length) {
+      tr.querySelector("td:last-child").appendChild(flagBadges(t.flags));
+    }
+    // Clicking anywhere in the row expands it -- except on a filing link.
+    tr.onclick = (event) => {
+      if (event.target.closest("a")) return;
+      expandTrip(t.trip_id);
+    };
+    body.appendChild(tr);
+  });
+}
+
+async function expandTrip(tripId) {
+  const tr = document.querySelector(`tr[data-trip-id="${CSS.escape(tripId)}"]`);
+  if (!tr) return;
+  const existing = tr.nextElementSibling;
+  if (existing && existing.classList.contains("trip-detail-row")) {
+    existing.remove(); // clicking again collapses
+    return;
+  }
+  if (tripsExpanding.has(tripId)) return; // a click is already expanding it
+  tripsExpanding.add(tripId);
+  try {
+    let detail = tripDetailCache.get(tripId);
+    if (!detail) {
+      const res = await fetch(`${TRIPS_API}/${encodeURIComponent(tripId)}`);
+      if (!res.ok) return;
+      detail = await res.json();
+      tripDetailCache.set(tripId, detail);
+    }
+
+    const legsRows = detail.legs
+      .map(
+        (leg) => `
+      <tr>
+        <td>${escapeHtml(leg.country_raw || leg.countries.join(", "))}</td>
+        <td>${escapeHtml(leg.arrival_date || "")}</td>
+        <td>${escapeHtml(leg.departure_date || "")}</td>
+        <td><a href="/report.html?id=${encodeURIComponent(leg.report_id)}">${escapeHtml(leg.report_id)}</a></td>
+      </tr>`
+      )
+      .join("");
+    const filingRows = detail.filings
+      .map(
+        (f) => `
+      <tr>
+        <td><a href="/report.html?id=${encodeURIComponent(f.report_id)}">${escapeHtml(f.report_id)}</a></td>
+        <td>${escapeHtml(f.sponsor_name)}</td>
+        <td>${escapeHtml(f.source_file)}</td>
+        <td>${escapeHtml(f.publication_date || "")}${f.amended ? " (amended)" : ""}</td>
+      </tr>`
+      )
+      .join("");
+    const conflictLinks = detail.conflict_with.length
+      ? detail.conflict_with
+          .map(
+            (id) => `<a href="/trips.html?expand=${encodeURIComponent(id)}">${escapeHtml(id)}</a>`
+          )
+          .join(", ")
+      : "none";
+
+    const detailRow = document.createElement("tr");
+    detailRow.className = "trip-detail-row";
+    const cell = document.createElement("td");
+    cell.colSpan = TRIP_COLUMN_COUNT;
+    cell.innerHTML = `
+    <div class="trip-detail">
+      <h4>Legs (${detail.n_legs})</h4>
+      <table class="trip-legs">
+        <thead><tr><th>Destination</th><th>Arrival</th><th>Departure</th><th>Filing</th></tr></thead>
+        <tbody>${legsRows}</tbody>
+      </table>
+      <h4>Filings (${detail.n_filings}, newest first)</h4>
+      <table class="trip-legs">
+        <thead><tr><th>Report</th><th>Sponsor</th><th>Source file</th><th>Published</th></tr></thead>
+        <tbody>${filingRows}</tbody>
+      </table>
+      <h4>Conflicts with</h4>
+      <div>${conflictLinks}</div>
+    </div>`;
+    detailRow.appendChild(cell);
+    tr.after(detailRow);
+  } finally {
+    tripsExpanding.delete(tripId);
+  }
 }

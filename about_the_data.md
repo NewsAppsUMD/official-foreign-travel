@@ -453,6 +453,28 @@ structured data:
    overlap. Some committees file more than one genuinely distinct report under the same
    generic sponsor label for a single quarter (e.g. separate Appropriations subcommittee
    delegations), so sponsor+period alone isn't a reliable duplicate signal.
+7. **Canonical trip records** (optional, `--trips`): a traveler's appearances are also
+   grouped into one record per person-journey, which may span filings. Within one
+   filing, a traveler's segments are sorted by arrival date (source tables are not
+   always chronological) and chained into journeys: a segment arriving more than 3 days
+   after the running journey's last departure starts a new journey
+   (`TRIP_SPLIT_BY_DATE_GAP`), while same-day and overlapping legs stay together.
+   Undated legs (e.g. recovered US departure/return rows) attach to the journey of
+   their nearest dated neighbor, and a fully-undated traveler yields one
+   `TRIP_DATES_MISSING` journey that never merges across filings (the match rule needs
+   both date spans). Across filings, two journeys for the same person (bioguide when
+   known, else normalized first/last name tokens) merge when their date spans overlap
+   and their destination sets overlap (exact or substring match; there is no gazetteer,
+   so a EUROPE vs DENMARK granularity mismatch stays unmerged and both records carry
+   `TRIP_DATE_DESTINATION_CONFLICT` -- that flag doubles as the review queue for these
+   cases). Merged records without any bioguide carry `TRIP_MATCHED_NAME_ONLY`, and a
+   bioguide-less name that maps to exactly one member bioguide also merges with that
+   member's filings (`TRIP_MERGED_MIXED_IDENTITY`). A merged record takes its field
+   values from the most recently published filing (`TRIP_MERGED_ACROSS_FILINGS`),
+   gap-filling missing dates, destinations, or bioguide from older filings
+   (`TRIP_GAP_FILLED_FROM_EARLIER_FILING`); cost amounts are never summed across
+   filings -- the winning filing's legs alone supply the record's USD totals, so a
+   co-sponsored CODEL reported by two committees isn't double-counted.
 
 The canonical output is JSON (`travel_reports.json`, generated with `oft-parse report_text/
 travel_reports.json`): one entry per report, each with its sponsor, period, and travelers,
@@ -464,6 +486,23 @@ excluded). `travel_report_data.csv` (generated with `oft-parse report_text/
 travel_report_data.csv`) is a flattened, one-row-per-segment export in the same column
 layout the pre-v3 CSV used, with additional cost/flag columns appended for backward
 compatibility. Like the JSON output, it's not committed here -- regenerate it locally.
+
+`trips.csv` (`.jsonl`/`.json` for the same records in object form; generated with
+`oft-parse report_text/ output.json --trips trips.csv`) is a separate optional output
+for analysis at the journey level rather than the filing level: one record per
+person-journey with its dates, countries, leg and filing counts, provenance
+(`source_report_ids`, `source_files`), the winning filing's USD totals, and merge
+flags. Each record has a deterministic `trip_id` of the form
+`<bioguide|name-slug>-<YYYYMMDD|undated>-<hash>`: stable across re-runs of the same
+input, but it changes if a correction changes the trip's dates, destinations, or
+identity, so `source_report_ids` is the durable join key back to the reports JSON.
+On the full corpus this yields roughly 26,800 trips, of which about 525 merge across
+filings (mostly co-sponsored CODELs and quarter-boundary straddlers) and about 500
+are flagged `TRIP_DATE_DESTINATION_CONFLICT`; each side's `conflict_with` column
+names the other side's `trip_id`, so the pairs are self-describing. Like the
+other outputs it is not committed here -- regenerate it locally. See
+[TECHNICAL_README.md](TECHNICAL_README.md) for the `--trips` options and the
+`build_trips` Python API.
 
 An optional `--llm-fallback` flag (requires the `llm` extra, Python 3.10+, and whichever
 model's credentials `--llm-model` needs -- an Anthropic model by default, or a local/cloud

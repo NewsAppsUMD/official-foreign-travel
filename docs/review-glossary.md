@@ -16,6 +16,12 @@ If you just want to know what a specific badge means, jump to
   along with their trip(s).
 - **Segment** — one leg of a traveler's trip: one arrival date, one departure date, one
   destination, and a set of costs. A traveler with a multi-stop trip has multiple segments.
+- **Trip** — one person's journey, built by stitching together that traveler's
+  appearances, which may span *multiple* reports (two committees co-sponsoring
+  one delegation each file their own report; a trip spanning a quarter
+  boundary is published twice). A traveler with a multi-stop itinerary is
+  still one trip. Shown on the Trips page (`trips.html`), which is read-only:
+  to fix something, open the filing the trip points to and correct it there.
 - **Sponsor** — who authorized/is filing the report (a committee, commission, delegation,
   interparliamentary group, the Speaker, or an individual).
 - **Period** — the date range (and, when it's a clean calendar quarter, the quarter number)
@@ -115,7 +121,8 @@ badge by itself — it's what the review app's `MILITARY_AIR` badge (below) is b
 
 Badges are grouped by what they're about. Each one is followed by what situation in the source
 document triggers it, and what it implies about whether you should double-check the scan.
-**Bold attach point** shows whether the badge appears on a whole report or on one segment.
+**Bold attach point** shows whether the badge appears on a whole report, on one
+segment, or (for the trip badges) on a trip.
 
 ### ⚠️ One badge is not stored data
 
@@ -169,6 +176,58 @@ Congress in the official roster.
   bare names produces confident-looking but wrong results). This is the expected, default
   outcome for staff travelers, not a sign anything went wrong. Only worth checking if the name
   looks like it should belong to a member who was printed without their usual title.
+
+### Trip construction
+
+These badges appear on the Trips page, not on filings. They record how trip
+records were stitched together across reports -- on that page, each report a
+trip was built from is listed as one of its "filings". Four of them (conflict,
+name-only, mixed-identity, dates-missing) are what the page's default
+"Needs attention only" filter shows.
+
+- **TRIP_MERGED_ACROSS_FILINGS** — **trip.** This journey was reported by more
+  than one filing (e.g. two committees co-sponsoring one delegation, or a trip
+  straddling a quarter boundary published twice), and the duplicates were
+  combined into a single trip. The trip's dates, destinations, and costs come
+  from the most recently published filing; costs are never added across
+  filings. By itself this badge is good news — the merge worked.
+- **TRIP_DATE_DESTINATION_CONFLICT** — **trip.** Two filings say the same
+  person traveled in the same date window but disagree about where they went
+  (a committee filing "EUROPE" and another filing "DENMARK"). The two records
+  were deliberately *not* merged; each one's detail view lists the other under
+  "Conflicts with". (Rarely, a third filing reported both destinations, so the
+  two sides merged after all — that trip keeps this badge but lists nothing
+  under "Conflicts with"; read its filings table instead.) Worth checking
+  which filing has the more specific destination, and correcting the vaguer
+  one if it's wrong.
+- **TRIP_MATCHED_NAME_ONLY** — **trip.** The filings describing this journey
+  were combined by matching the traveler's name plus dates and destinations,
+  with no member ID on any side — typically a spouse or staffer, or a member
+  the roster lookup couldn't confirm. If the same person appears under
+  slightly different names, this is how they were joined. Worth confirming
+  the joined filings really do describe the same person — with no member ID
+  on any side, a shared name plus overlapping dates is the weakest join trip
+  construction makes.
+- **TRIP_MERGED_MIXED_IDENTITY** — **trip.** One filing listed this person
+  with their member ID and another without, but the bare name is unique to
+  exactly one member of Congress, so the two were combined. The uniqueness
+  call came from the roster lookup, not from a printed ID on both filings,
+  which is why this still asks for a glance — a quick check that no second
+  member shares the name settles it.
+- **TRIP_DATES_MISSING** — **trip.** No dated leg could be recovered for this
+  journey (the source shows no usable dates), so it was never merged across
+  filings — matching requires dates on both sides. If the scan shows dates the
+  parser missed, the fix is on the filing side: correct it there and the trip
+  re-derives on restart, and once it has dates it can merge.
+- **TRIP_SPLIT_BY_DATE_GAP** — **trip.** Within one filing, this traveler's
+  legs had a gap of more than three days between them, so they were treated
+  as two separate journeys rather than one long trip. Informational: check
+  the source if it looks like one continuous trip.
+- **TRIP_GAP_FILLED_FROM_EARLIER_FILING** — **trip.** The most recently
+  published filing left a leg's dates or destination blank and an older
+  filing of the same journey supplied them. The badge marks the filled-in
+  values; the Filings table in the detail view lists every contributing
+  filing.
 
 ### Report/table structure, sponsor, and period
 

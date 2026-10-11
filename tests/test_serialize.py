@@ -42,6 +42,24 @@ class TestToJsonDict:
         if cell.get("amount") is not None:
             assert isinstance(cell["amount"], str)
 
+    def test_segments_always_include_notes(self):
+        reports = load_reports("2019q1jan29.txt")
+        report = next(report for report in reports if report.travelers)
+        segment = report.travelers[0].segments[0]
+        segment.notes.append("Dates confirmed against source text.")
+
+        payload = to_json_dict(reports)
+        segments = [
+            segment
+            for report in payload["reports"]
+            for traveler in report.get("travelers", [])
+            for segment in traveler["segments"]
+        ]
+
+        assert segments
+        assert all("notes" in segment for segment in segments)
+        assert segments[0]["notes"] == ["Dates confirmed against source text."]
+
     def test_superseded_reports_excluded_by_default(self):
         period = Period(start=date(1993, 10, 1), end=date(1993, 12, 31), year=1993, quarter=4)
         sponsor = Sponsor(type="committee", name="COMMITTEE ON ARMED SERVICES", raw="")

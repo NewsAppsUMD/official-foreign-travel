@@ -38,14 +38,13 @@ def parse_publication_date(source_file: str) -> Optional[date]:
         return None
 
 
-def _dedup_key(report: Report) -> Optional[tuple[str, str, date, date]]:
+def _dedup_key(report: Report) -> Optional[tuple[str, str, date]]:
     if report.period is None or report.period.start is None or report.period.end is None:
         return None
     return (
         report.sponsor.type,
         report.sponsor.name.strip().upper(),
         report.period.start,
-        report.period.end,
     )
 
 
@@ -99,14 +98,14 @@ def _cluster(indices: list[int], reports: list[Report]) -> list[list[int]]:
 
 def dedup_reports(reports: list[Report]) -> list[Report]:
     """
-    Mark superseded reports among true duplicates sharing a sponsor+period.
+    Mark superseded reports among true duplicates sharing a sponsor and period start.
 
     Args:
         reports: All assembled reports, in file order
 
     Returns:
         The same list, with `superseded_by` set on losing duplicates.
-        Reports with no resolvable period, or that share a sponsor+period
+        Reports with no resolvable period, or that share a sponsor and period start
         but have disjoint traveler rosters and no amended flag (distinct
         reports filed under the same generic sponsor label), are left alone.
     """

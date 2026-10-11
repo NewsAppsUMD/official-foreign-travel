@@ -100,6 +100,7 @@ class TravelSegment(BaseModel):
     countries: list[str] = Field(default_factory=list)
     costs: Costs
     flags: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
     source_lines: list[int] = Field(default_factory=list)
 
 

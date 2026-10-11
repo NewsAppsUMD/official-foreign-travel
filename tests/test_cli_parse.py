@@ -192,3 +192,37 @@ class TestApplyCorrections:
         )
         assert code == 1
         assert "not a corrections overlay file" in capsys.readouterr().out
+
+
+class TestTripsOutput:
+    def test_trips_csv_flag(self, tmp_path, monkeypatch, capsys):
+        out = tmp_path / "out.json"
+        trips = tmp_path / "trips.csv"
+        code = run_cli(
+            [str(FIXTURES / "2019q1jan29.txt"), str(out), "--trips", str(trips)], monkeypatch
+        )
+        assert code == 0
+        with open(trips, newline="") as f:
+            rows = list(csv.DictReader(f))
+        assert rows
+        assert rows[0]["trip_id"]
+        assert "trips" in capsys.readouterr().out
+
+    def test_trips_jsonl_flag(self, tmp_path, monkeypatch):
+        out = tmp_path / "out.json"
+        trips = tmp_path / "trips.jsonl"
+        code = run_cli(
+            [str(FIXTURES / "2019q1jan29.txt"), str(out), "--trips", str(trips)], monkeypatch
+        )
+        assert code == 0
+        lines = trips.read_text().strip().split("\n")
+        assert lines
+        for line in lines:
+            row = json.loads(line)
+            assert row["trip_id"]
+
+    def test_no_trips_flag_writes_no_trips_file(self, tmp_path, monkeypatch):
+        out = tmp_path / "out.json"
+        code = run_cli([str(FIXTURES / "2019q1jan29.txt"), str(out)], monkeypatch)
+        assert code == 0
+        assert {p.name for p in tmp_path.iterdir()} == {"out.json"}

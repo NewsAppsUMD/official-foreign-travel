@@ -6,6 +6,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from ..models.report import Report
+from ..parsing.trips import TRIP_ATTENTION_FLAGS, Trip
 from .corrections import load_corrections, save_report_correction
 from .source_lookup import get_raw_lines
 
@@ -13,11 +14,96 @@ STATIC_DIR = Path(__file__).parent / "static"
 CONTENT_TYPES = {".html": "text/html", ".css": "text/css", ".js": "application/javascript"}
 
 
+def _trip_row(trip: Trip) -> dict:
+    """Flat JSON row for the trips list page. Arrays rather than joined
+    strings (the client filters and links without splitting) and ISO dates
+    (string sorting in the table is chronological)."""
+    days = (
+        (trip.end_date - trip.start_date).days + 1
+        if trip.start_date is not None and trip.end_date is not None
+        else None
+    )
+    return {
+        "trip_id": trip.trip_id,
+        "name": trip.name,
+        "bioguide_id": trip.bioguide_id,
+        "sponsor_name": trip.sponsor_name,
+        "committee_code": trip.sponsor_code or "",
+        "start_date": trip.start_date.isoformat() if trip.start_date else "",
+        "end_date": trip.end_date.isoformat() if trip.end_date else "",
+        "days": days,
+        "countries": list(trip.countries),
+        "n_legs": trip.n_legs,
+        "n_filings": trip.n_filings,
+        "source_report_ids": list(trip.source_report_ids),
+        "source_files": list(trip.source_files),
+        "total_usd": str(trip.total_usd) if trip.total_usd is not None else None,
+        "flags": list(trip.flags),
+        "conflict_with": list(trip.conflict_with),
+    }
+
+
+def _trip_detail(trip: Trip) -> dict:
+    """The list row plus legs and per-filing provenance, for the expand view.
+
+    Builds on a fresh dict from ``_trip_row`` (never a cached or shared row),
+    so the result is safe to extend and this ``update()`` can never poison a
+    future row cache.
+    """
+    row = _trip_row(trip)
+    row.update(
+        legs=[
+            {
+                "arrival_date": (
+                    leg.segment.arrival_date.isoformat() if leg.segment.arrival_date else ""
+                ),
+                "departure_date": (
+                    leg.segment.departure_date.isoformat() if leg.segment.departure_date else ""
+                ),
+                "countries": list(leg.segment.countries),
+                "country_raw": leg.segment.country_raw,
+                "notes": list(leg.segment.notes),
+                "report_id": leg.report_id,
+                "source_file": leg.source_file,
+            }
+            for leg in trip.legs
+        ],
+        filings=[
+            {
+                "report_id": filing.report_id,
+                "source_file": filing.source_file,
+                "sponsor_type": filing.sponsor_type,
+                "sponsor_name": filing.sponsor_name,
+                "sponsor_code": filing.sponsor_code,
+                "publication_date": (
+                    filing.publication_date.isoformat() if filing.publication_date else ""
+                ),
+                "amended": filing.amended,
+            }
+            for filing in trip.filings
+        ],
+        per_diem_usd=str(trip.per_diem_usd) if trip.per_diem_usd is not None else None,
+        transportation_usd=(
+            str(trip.transportation_usd) if trip.transportation_usd is not None else None
+        ),
+        other_usd=str(trip.other_usd) if trip.other_usd is not None else None,
+        military_air=trip.military_air,
+        publication_date=trip.publication_date.isoformat() if trip.publication_date else "",
+        amended=trip.amended,
+        notes=list(trip.notes),
+    )
+    return row
+
+
 def make_handler(
-    reports: list[Report], report_text_dir: Path, corrections_path: Path
+    reports: list[Report],
+    report_text_dir: Path,
+    corrections_path: Path,
+    trips: list[Trip],
 ) -> type[BaseHTTPRequestHandler]:
-    """Build a request handler class closed over this run's reports and paths."""
+    """Build a request handler class closed over this run's reports and trips."""
     reports_by_id = {r.report_id: r for r in reports}
+    trips_by_id = {t.trip_id: t for t in trips}
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format_str: str, *args: object) -> None:
@@ -28,12 +114,16 @@ def make_handler(
             try:
                 if path == "/":
                     self._serve_static("index.html")
-                elif path in ("/report.html", "/app.css", "/app.js"):
+                elif path in ("/report.html", "/trips.html", "/app.css", "/app.js"):
                     self._serve_static(path.lstrip("/"))
                 elif path == "/api/reports":
                     self._send_json(self._list_reports())
                 elif path.startswith("/api/reports/"):
                     self._send_report_detail(path[len("/api/reports/") :])
+                elif path == "/api/trips":
+                    self._send_json([_trip_row(t) for t in trips])
+                elif path.startswith("/api/trips/"):
+                    self._send_trip_detail(path[len("/api/trips/") :])
                 else:
                     self.send_error(404)
             except json.JSONDecodeError as e:
@@ -108,6 +198,13 @@ def make_handler(
                 }
             )
 
+        def _send_trip_detail(self, trip_id: str) -> None:
+            trip = trips_by_id.get(trip_id)
+            if trip is None:
+                self.send_error(404)
+                return
+            self._send_json(_trip_detail(trip))
+
         def _save_corrections(self, report_id: str) -> None:
             if report_id not in reports_by_id:
                 self.send_error(404)
@@ -129,6 +226,7 @@ def run_server(
     reports: list[Report],
     report_text_dir: Path,
     corrections_path: Path,
+    trips: list[Trip],
     host: str = "127.0.0.1",
     port: int = 8765,
 ) -> None:
@@ -136,13 +234,17 @@ def run_server(
 
     Every parsed report is browsable; the list view defaults to showing only
     the flagged subset (the review queue), with a toggle for everything else.
+    ``trips`` (from ``parsing.trips.build_trips`` over the same reports)
+    powers the read-only trips view at /trips.html.
     """
     flagged = sum(1 for r in reports if r.flags)
-    handler_cls = make_handler(reports, report_text_dir, corrections_path)
+    attention = sum(1 for t in trips if TRIP_ATTENTION_FLAGS & set(t.flags))
+    handler_cls = make_handler(reports, report_text_dir, corrections_path, trips)
     server = ThreadingHTTPServer((host, port), handler_cls)
     print(
         f"Review server running at http://{host}:{port}/ "
-        f"({len(reports)} reports, {flagged} flagged)"
+        f"({len(reports)} reports, {flagged} flagged · "
+        f"{len(trips)} trips, {attention} need attention)"
     )
     try:
         server.serve_forever()

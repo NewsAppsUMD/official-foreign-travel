@@ -10,6 +10,9 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from ..models.report import Report
+from ..parsing.serialize import visible_reports
+from ..parsing.trips import build_trips
+from ..review.corrections import apply_corrections, load_corrections
 from ..review.server import run_server
 
 
@@ -92,7 +95,26 @@ def main() -> int:
         print(f"Error: {args.parsed_json} contains invalid report data: {e}")
         return 1
 
-    run_server(reports, args.report_text_dir, args.corrections, host=args.host, port=args.port)
+    try:
+        corrections = load_corrections(args.corrections)
+    except json.JSONDecodeError as e:
+        print(f"Error: invalid JSON in {args.corrections}: {e}")
+        return 1
+    if not isinstance(corrections, dict):
+        print(f"Error: {args.corrections} is not a corrections overlay file")
+        return 1
+    reports = apply_corrections(reports, corrections)
+
+    # Trips are derived once, after corrections: the trips view always
+    # reflects this session's reports, with no separate file to keep in
+    # sync. Superseded filings are excluded (matching `oft-parse --trips`)
+    # but remain browsable in the filings list. Corrections saved during
+    # the session don't re-derive trips -- restart to refresh.
+    trips = build_trips(visible_reports(reports, include_superseded=False))
+
+    run_server(
+        reports, args.report_text_dir, args.corrections, trips, host=args.host, port=args.port
+    )
     return 0
 
 

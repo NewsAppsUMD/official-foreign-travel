@@ -1,5 +1,66 @@
 # Changelog
 
+## [Unreleased]
+
+### Added - Canonical trip records (`--trips`)
+
+The same journey can appear in multiple filings -- two committees
+co-sponsoring a CODEL each file their own report listing overlapping
+travelers, and a trip spanning a quarter boundary is published twice.
+`oft-parse` can now derive canonical trip records that merge those
+filings: one record per person-journey, matched across filings by
+person identity + overlapping date spans + overlapping destination
+sets.
+
+New CLI flag:
+- **`--trips <file>`**: write canonical trip records alongside the
+  primary output. Format inferred from the extension: `.csv` (one row
+  per trip), `.jsonl` (one object per trip), or `.json` (nested trips
+  with per-leg detail and per-filing provenance; `.gz` compresses).
+  Derived after dedup and `--apply-corrections`; superseded filings
+  are excluded unless `--include-superseded`. One corpus-level file
+  regardless of `--split-by-year` (a trip can span publication years).
+
+New module `parsing/trips.py` with `build_trips(reports)` -- a pure
+derivation (never mutates its input) that:
+- Splits a traveler's in-filing segments into journeys at >3-day gaps
+  (`TRIP_SPLIT_BY_DATE_GAP`), attaching undated legs to their nearest
+  dated neighbor; fully-undated travelers yield one `TRIP_DATES_MISSING`
+  trip that never merges across filings.
+- Merges journeys across filings for the same person (bioguide when
+  known, else normalized name tokens) when date spans and destination
+  sets both overlap. Name-only merges are flagged
+  `TRIP_MATCHED_NAME_ONLY`; a bioguide-less name that maps to exactly
+  one member bioguide also merges (`TRIP_MERGED_MIXED_IDENTITY`).
+  Date-overlapping-but-destination-disagreeing pairs stay separate and
+  both are flagged `TRIP_DATE_DESTINATION_CONFLICT`.
+- Resolves fields newest-filing-wins with gap-fill of missing
+  dates/destinations/bioguide from older filings
+  (`TRIP_GAP_FILLED_FROM_EARLIER_FILING`); costs are never summed
+  across filings.
+
+Each record carries a deterministic `trip_id`
+(`<bioguide|name-slug>-<YYYYMMDD|undated>-<hash>`); `source_report_ids`
+is the durable join key back to the reports JSON.
+
+On the full corpus: ~26,800 trips, ~525 merged across filings, ~500
+flagged date/destination conflicts.
+
+Trip records also carry `conflict_with` (a final CSV column; a field in
+JSONL/JSON): the trip ids of the other side of any date/destination
+conflict, so conflict pairs can be traced and triaged outside the browser.
+
+### Added - Trips view in the review browser
+
+`oft-review` now derives trips once at startup, right after applying
+corrections, and serves a read-only trips page at `/trips.html`:
+one row per person-journey with in-page leg/filing detail, links into
+the underlying filings, a "needs attention" default filter
+(conflicts, name-only merges, mixed-identity merges, undated trips),
+a flag filter, and a name/bioguide/trip-id search. Two new API routes
+back it: `/api/trips` and `/api/trips/{trip_id}`. No new CLI flags;
+restart `oft-review` to refresh trips after saving corrections.
+
 ## [3.0.31] - 2026-07-18
 
 ### Added - Per-year JSON output for ongoing tracking

@@ -20,7 +20,15 @@ from ..parsing.assemble import (
     load_name_index,
 )
 from ..parsing.dedup import dedup_reports
-from ..parsing.serialize import write_csv, write_json, write_json_dir, write_jsonl
+from ..parsing.serialize import (
+    write_csv,
+    write_json,
+    write_json_dir,
+    write_jsonl,
+    write_trips_csv,
+    write_trips_json,
+    write_trips_jsonl,
+)
 from ..parsing.validate import validate_reports
 from ..utils.config import Config, get_config
 from ..utils.logging import get_logger
@@ -141,3 +149,21 @@ class ReportParser:
     ) -> dict[str, int]:
         """Write reports to flat JSON Lines (one traveler segment per line)."""
         return write_jsonl(reports, output_file, include_superseded)
+
+    def write_trips_csv(
+        self, reports: list[Report], output_file: Path, include_superseded: bool = False
+    ) -> dict[str, int]:
+        """Write canonical trip records to CSV (one row per person-journey)."""
+        return write_trips_csv(reports, output_file, include_superseded)
+
+    def write_trips_jsonl(
+        self, reports: list[Report], output_file: Path, include_superseded: bool = False
+    ) -> dict[str, int]:
+        """Write canonical trip records to JSON Lines (one trip per line)."""
+        return write_trips_jsonl(reports, output_file, include_superseded)
+
+    def write_trips_json(
+        self, reports: list[Report], output_file: Path, include_superseded: bool = False
+    ) -> dict[str, int]:
+        """Write canonical trip records to nested JSON (trips with per-leg detail)."""
+        return write_trips_json(reports, output_file, include_superseded)
